@@ -27,3 +27,25 @@ Future modules may include:
 - Redis
 - Nginx
 - Docker
+
+## Architecture
+
+ReportFlow AI follows a lightweight business-oriented architecture.
+
+```text
+HTTP
+ |
+ v
+Controller
+ | \
+ |  \
+ v   v
+Action   Query
+(write)  (read)
+   \      /
+    \    /
+     v  v
+     Model
+       |
+       v
+    Database
