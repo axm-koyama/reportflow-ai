@@ -27,3 +27,54 @@ Future modules may include:
 - Redis
 - Nginx
 - Docker
+
+## Project Structure
+
+```text
+app/
+├── Actions
+├── Queries
+├── Enums
+├── Models
+├── Http
+│   ├── Controllers
+│   └── Requests
+
+## Architecture
+
+ReportFlow AI follows a lightweight business-oriented architecture.
+
+```text
+HTTP
+ |
+ v
+Controller
+ | \
+ |  \
+ v   v
+Action   Query
+(write)  (read)
+   \      /
+    \    /
+     v  v
+     Model
+       |
+       v
+    Database
+
+
+```text
+                  Browser
+                     │
+                     ▼
+               ProjectController
+              ╱                 ╲
+             ▼                   ▼
+CreateProjectAction      ListProjectsQuery
+             ╲                   ╱
+              ▼                 ▼
+                  Project Model
+                        │
+                        ▼
+                     MySQL
+
