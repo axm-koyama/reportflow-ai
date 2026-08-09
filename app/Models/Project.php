@@ -6,8 +6,10 @@ namespace App\Models;
 
 use App\Enums\ProjectStatus;
 use Database\Factories\ProjectFactory;
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Support\Carbon;
 
@@ -19,6 +21,7 @@ use Illuminate\Support\Carbon;
  * @property Carbon|null $created_at
  * @property Carbon|null $updated_at
  * @property Carbon|null $deleted_at
+ * @property-read Collection<int, DataFile> $dataFiles
  */
 class Project extends Model
 {
@@ -53,5 +56,15 @@ class Project extends Model
         return [
             'status' => ProjectStatus::class,
         ];
+    }
+
+    /**
+     * Get the data files that belong to the project.
+     *
+     * @return HasMany<DataFile, $this>
+     */
+    public function dataFiles(): HasMany
+    {
+        return $this->hasMany(DataFile::class, 'project_id', 'project_id');
     }
 }
