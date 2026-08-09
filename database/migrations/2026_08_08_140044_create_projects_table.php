@@ -19,7 +19,9 @@ return new class extends Migration
             $table->id('project_id');
             $table->string('name')->comment('Project name');
             $table->text('description')->nullable()->comment('Project description');
-            $table->string('status', 20)->default(ProjectStatus::Active->value)->comment('Business status (ProjectStatus enum value)');
+            $table->string('status', 20)
+                ->default(ProjectStatus::Active->value)
+                ->comment('Business status (ProjectStatus enum value)');
             $table->timestamps();
             $table->softDeletes();
         });
