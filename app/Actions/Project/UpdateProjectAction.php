@@ -11,7 +11,9 @@ class UpdateProjectAction
     /**
      * Update an existing project with the given attributes.
      *
+     * @param Project $project
      * @param  array<string, mixed>  $attributes
+     * @return Project
      */
     public function execute(Project $project, array $attributes): Project
     {

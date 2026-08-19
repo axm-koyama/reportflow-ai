@@ -17,6 +17,9 @@ use Throwable;
 
 class UploadDataFileAction
 {
+    /**
+     * @param CsvFileValidator $csvFileValidator
+     */
     public function __construct(
         private readonly CsvFileValidator $csvFileValidator,
     ) {}
@@ -24,6 +27,9 @@ class UploadDataFileAction
     /**
      * Validate, store, and register an uploaded CSV file for the given project.
      *
+     * @param Project $project
+     * @param UploadedFile $file
+     * @return DataFile
      * @throws ValidationException
      * @throws RuntimeException
      */

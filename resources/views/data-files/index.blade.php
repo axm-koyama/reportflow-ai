@@ -47,6 +47,7 @@
                 <th>MIME Type</th>
                 <th>Size</th>
                 <th>Uploaded At</th>
+                <th>Actions</th>
             </tr>
         </thead>
         <tbody>
@@ -56,10 +57,17 @@
                     <td>{{ $dataFile->mime_type }}</td>
                     <td>{{ $formattedSizes[$dataFile->data_file_id] }}</td>
                     <td>{{ $dataFile->created_at?->format('Y-m-d H:i') }}</td>
+                    <td>
+                        @if ($canUpload)
+                            <a href="{{ route('projects.data-files.analysis-jobs.create', [$project, $dataFile]) }}" class="btn">Analyze</a>
+                        @else
+                            <span class="hint">Unavailable</span>
+                        @endif
+                    </td>
                 </tr>
             @empty
                 <tr>
-                    <td colspan="4">No data files uploaded yet.</td>
+                    <td colspan="5">No data files uploaded yet.</td>
                 </tr>
             @endforelse
         </tbody>

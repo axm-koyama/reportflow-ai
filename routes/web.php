@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\AnalysisJobController;
 use App\Http\Controllers\DataFileController;
 use App\Http\Controllers\ProjectController;
 use Illuminate\Support\Facades\Route;
@@ -23,3 +24,16 @@ Route::prefix('projects/{project}')
         Route::post('/data-files', [DataFileController::class, 'store'])
             ->name('data-files.store');
     });
+
+Route::prefix('projects/{project}/data-files/{dataFile}')
+    ->name('projects.data-files.')
+    ->group(function () {
+        Route::get('/analysis-jobs/create', [AnalysisJobController::class, 'create'])
+            ->name('analysis-jobs.create');
+
+        Route::post('/analysis-jobs', [AnalysisJobController::class, 'store'])
+            ->name('analysis-jobs.store');
+    });
+
+Route::get('/projects/{project}/analysis-jobs/{analysisJob}', [AnalysisJobController::class, 'show'])
+    ->name('projects.analysis-jobs.show');

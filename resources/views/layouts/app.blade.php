@@ -5,6 +5,7 @@
         <meta name="viewport" content="width=device-width, initial-scale=1">
 
         <title>@yield('title', 'Projects') - {{ config('app.name', 'ReportFlow AI') }}</title>
+        @yield('head')
 
         {{-- Minimal, dependency-free styling. Keeps the UI simple without requiring a Vite/Tailwind build. --}}
         <style>
@@ -38,6 +39,16 @@
             .badge { display: inline-block; padding: 0.15rem 0.6rem; border-radius: 999px; font-size: 0.75rem; }
             .badge-active { background: #dcfce7; color: #166534; }
             .badge-archived { background: #e5e5e5; color: #52525b; }
+            .badge-pending { background: #fef3c7; color: #92400e; }
+            .badge-processing { background: #dbeafe; color: #1e40af; }
+            .badge-completed { background: #dcfce7; color: #166534; }
+            .badge-failed { background: #fee2e2; color: #991b1b; }
+            .alert-error { background: #fee2e2; color: #991b1b; padding: 0.75rem 1rem; border-radius: 4px; margin-bottom: 1rem; }
+            .card { background: #fff; border-radius: 6px; padding: 1rem; margin-bottom: 1rem; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08); }
+            .card h2 { font-size: 1.1rem; margin: 0 0 0.75rem; }
+            .card h3 { font-size: 0.95rem; margin: 1rem 0 0.5rem; }
+            .metadata dt { font-weight: 600; font-size: 0.8rem; color: #6b7280; }
+            .metadata dd { margin: 0.2rem 0 0.8rem; white-space: pre-wrap; }
             .alert-success { background: #dcfce7; color: #166534; padding: 0.75rem 1rem; border-radius: 4px; margin-bottom: 1rem; }
             .errors { background: #fee2e2; color: #991b1b; padding: 0.75rem 1rem; border-radius: 4px; margin-bottom: 1rem; }
             .errors ul { margin: 0; padding-left: 1.25rem; }

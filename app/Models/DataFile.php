@@ -5,9 +5,11 @@ declare(strict_types=1);
 namespace App\Models;
 
 use Database\Factories\DataFileFactory;
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Support\Carbon;
 
@@ -21,6 +23,7 @@ use Illuminate\Support\Carbon;
  * @property Carbon|null $created_at
  * @property Carbon|null $updated_at
  * @property Carbon|null $deleted_at
+ * @property-read Collection<int, AnalysisJob> $analysisJobs
  */
 class DataFile extends Model
 {
@@ -55,5 +58,15 @@ class DataFile extends Model
     public function project(): BelongsTo
     {
         return $this->belongsTo(Project::class, 'project_id', 'project_id');
+    }
+
+    /**
+     * Get the analysis jobs executed against this data file.
+     *
+     * @return HasMany<AnalysisJob, $this>
+     */
+    public function analysisJobs(): HasMany
+    {
+        return $this->hasMany(AnalysisJob::class, 'data_file_id', 'data_file_id');
     }
 }
