@@ -799,6 +799,14 @@ ExecuteAnalysisJobAction
 NormalizeAnalysisResultAction
 ```
 
+> **Post-Sprint-3 additions**: `ExecuteAnalysisJobAction`'s pipeline has since
+> grown beyond this original list. Phase 1 added `DataProfilingAction` and
+> `MetricAggregationAction` (docs/product/METRIC_AGGREGATION.md). Phase 2
+> added `PlanDerivedMetricsAction` and `CalculateDerivedMetricsAction`
+> (docs/product/DERIVED_METRICS.md), making a total of two AI calls per
+> AnalysisJob execution attempt instead of one. See ExecuteAnalysisJobAction's
+> class docblock for the current, authoritative pipeline order.
+
 ### CreateAnalysisJobAction
 
 Responsibilities:

@@ -16,21 +16,32 @@ use RuntimeException;
  *
  * Responsibilities:
  * - Map the AI Context (system_instruction / user_prompt / data_profile /
- *   aggregated_metrics / output_schema) onto an OpenAI Responses API request
+ *   aggregated_metrics / derived_metrics / output_schema) onto an OpenAI
+ *   Responses API request
  * - Request strict Structured Outputs (text.format.type = json_schema,
  *   strict = true) so the response conforms to ReportFlow AI's V1 Result
  *   Schema
  * - Extract and return only the structured output JSON text
+ * - Also expose planMetrics(): a second, independent request/response
+ *   pair used for Metric Planning (see PlanDerivedMetricsAction /
+ *   docs/product/DERIVED_METRICS.md). It targets a different, much
+ *   smaller Structured Output schema and never receives aggregated_metrics'
+ *   actual numeric values.
  *
  * Out of scope:
  * - Reading DataFile / CSV content (that is DataProfilingAction's
  *   responsibility; this client never receives a DataFile)
  * - Persisting anything to the database
- * - Normalizing/validating the returned JSON against the Result Schema
- *   (that is NormalizeAnalysisResultAction's responsibility)
- * - Retrying failed requests (a single HTTP attempt is made; retrying a
- *   failed AnalysisJob attempt is Laravel Queue's responsibility, see
- *   ExecuteAnalysisJob)
+ * - Normalizing/validating the returned JSON against the Result Schema or
+ *   the Metric Plan (that is NormalizeAnalysisResultAction's /
+ *   CalculateDerivedMetricsAction's responsibility, respectively)
+ * - Retrying failed requests (a single HTTP attempt is made per method
+ *   call; retrying a failed AnalysisJob attempt is Laravel Queue's
+ *   responsibility, see ExecuteAnalysisJob)
+ * - Tool calling / function calling / any multi-turn conversation state
+ *   (both methods send a single, stateless `store: false` request; see
+ *   docs/product/DERIVED_METRICS.md "AIを2回呼ぶ理由" for why Metric
+ *   Planning is a second independent request rather than a tool call)
  *
  * All application-level failures are raised as RuntimeException.
  */
@@ -60,6 +71,7 @@ class AiAnalysisClient
                 'user_prompt' => $context['user_prompt'],
                 'data_profile' => $context['data_profile'],
                 'aggregated_metrics' => $context['aggregated_metrics'],
+                'derived_metrics' => $context['derived_metrics'],
             ], JSON_THROW_ON_ERROR);
         } catch (JsonException $exception) {
             throw new RuntimeException(
@@ -156,6 +168,156 @@ class AiAnalysisClient
 
                 if (($contentItem['type'] ?? null) === 'refusal') {
                     throw new RuntimeException('OpenAI refused the analysis request.');
+                }
+
+                if (($contentItem['type'] ?? null) === 'output_text'
+                    && is_string($contentItem['text'] ?? null)) {
+                    return $contentItem['text'];
+                }
+            }
+        }
+
+        throw new RuntimeException('OpenAI response did not contain structured output.');
+    }
+
+    /**
+     * Send a Metric Planning context to OpenAI and return its structured
+     * output JSON: a proposed, untrusted list of CalculationDefinition
+     * objects (see PlanDerivedMetricsAction, which is solely responsible
+     * for decoding this string, and CalculateDerivedMetricsAction, which
+     * is solely responsible for validating and computing from it).
+     *
+     * $context never carries aggregated_metrics' actual numeric values —
+     * only the names of available dimensions / measures / aggregations —
+     * so a Metric Plan request is deliberately far smaller than an
+     * analyze() request. See docs/product/DERIVED_METRICS.md.
+     *
+     * This method's HTTP mechanics (auth check, timeout, status/output
+     * extraction, error messages) intentionally mirror analyze() rather
+     * than sharing implementation with it. analyze() has extensive
+     * existing test coverage; factoring out shared internals risked
+     * introducing a subtle regression there for a modest amount of shared
+     * code. See docs/product/DERIVED_METRICS.md "AIを2回呼ぶ理由" for the
+     * full rationale. The one piece of logic that is safely reused as-is
+     * is nonCompletedStatusMessage(), which analyze() does not need to
+     * change to share.
+     *
+     * @param array<string, mixed> $context
+     * @return string
+     * @throws RuntimeException if the API key is not configured, the
+     *                           Metric Planning Context cannot be encoded
+     *                           as JSON, the request fails (connection
+     *                           error or non-2xx status), or the response
+     *                           does not contain a usable structured
+     *                           output.
+     */
+    public function planMetrics(array $context): string
+    {
+        $apiKey = config('services.openai.key');
+
+        if (! is_string($apiKey) || $apiKey === '') {
+            throw new RuntimeException('OpenAI API key is not configured.');
+        }
+
+        try {
+            $inputText = json_encode([
+                'user_prompt' => $context['user_prompt'],
+                'available_dimensions' => $context['available_dimensions'],
+                'available_measures' => $context['available_measures'],
+                'available_aggregations' => $context['available_aggregations'],
+                'max_derived_metrics' => $context['max_derived_metrics'],
+            ], JSON_THROW_ON_ERROR);
+        } catch (JsonException $exception) {
+            throw new RuntimeException(
+                'Failed to encode Metric Planning Context as JSON.',
+                previous: $exception,
+            );
+        }
+
+        try {
+            $response = Http::withToken($apiKey)
+                ->timeout((int) config('services.openai.timeout'))
+                ->post((string) config('services.openai.responses_url'), [
+                    'model' => config('services.openai.model'),
+                    'store' => false,
+                    'instructions' => $context['system_instruction'],
+                    'input' => [
+                        [
+                            'role' => 'user',
+                            'content' => [
+                                [
+                                    'type' => 'input_text',
+                                    'text' => $inputText,
+                                ],
+                            ],
+                        ],
+                    ],
+                    'text' => [
+                        'format' => [
+                            'type' => 'json_schema',
+                            'name' => 'reportflow_derived_metrics_plan',
+                            'strict' => true,
+                            'schema' => $this->derivedMetricsPlanSchema(),
+                        ],
+                    ],
+                ]);
+        } catch (ConnectionException $exception) {
+            throw new RuntimeException(
+                'OpenAI API request failed due to a connection error.',
+                previous: $exception,
+            );
+        }
+
+        if (! $response->successful()) {
+            throw new RuntimeException(
+                "OpenAI API request failed with HTTP status {$response->status()}.",
+            );
+        }
+
+        $responseBody = $response->json();
+
+        if (! is_array($responseBody)) {
+            throw new RuntimeException('OpenAI response had an unexpected shape.');
+        }
+
+        $status = $responseBody['status'] ?? null;
+
+        if ($status === 'incomplete') {
+            throw new RuntimeException('OpenAI response was incomplete.');
+        }
+
+        if ($status !== 'completed') {
+            throw new RuntimeException($this->nonCompletedStatusMessage($responseBody, $status));
+        }
+
+        $output = $responseBody['output'] ?? null;
+
+        if (! is_array($output)) {
+            throw new RuntimeException('OpenAI response had an unexpected shape.');
+        }
+
+        foreach ($output as $outputItem) {
+            if (! is_array($outputItem)) {
+                throw new RuntimeException('OpenAI response had an unexpected shape.');
+            }
+
+            if (($outputItem['type'] ?? null) !== 'message') {
+                continue;
+            }
+
+            $content = $outputItem['content'] ?? null;
+
+            if (! is_array($content)) {
+                throw new RuntimeException('OpenAI response had an unexpected shape.');
+            }
+
+            foreach ($content as $contentItem) {
+                if (! is_array($contentItem)) {
+                    throw new RuntimeException('OpenAI response had an unexpected shape.');
+                }
+
+                if (($contentItem['type'] ?? null) === 'refusal') {
+                    throw new RuntimeException('OpenAI refused the metric planning request.');
                 }
 
                 if (($contentItem['type'] ?? null) === 'output_text'
@@ -285,6 +447,74 @@ class AiAnalysisClient
                 'insights',
                 'recommendations',
             ],
+            'additionalProperties' => false,
+        ];
+    }
+
+    /**
+     * The Structured Output schema for planMetrics(): a list of proposed
+     * CalculationDefinition objects. The enum constraints on "operator"
+     * and "left"/"right".aggregation give a first line of defense (the
+     * API itself refuses to return a value outside these lists), but
+     * CalculateDerivedMetricsAction still independently validates every
+     * field — this schema cannot know which measures/dimensions actually
+     * exist in a given AnalysisJob's data, only their allowed *shape*.
+     *
+     * "group_by" is a plain string (not nullable): Phase 2 requires
+     * group_by on every CalculationDefinition (see
+     * docs/product/DERIVED_METRICS.md "group_by must be required").
+     *
+     * This schema deliberately has no "maxItems" on the "derived_metrics"
+     * array. config('derived_metrics.max_derived_metrics') is the Single
+     * Source of Truth for that limit — it flows into the Planning
+     * Context's "max_derived_metrics" (PlanDerivedMetricsAction) as
+     * guidance to the AI, and CalculateDerivedMetricsAction enforces it
+     * as the actual application-side limit regardless of what the AI
+     * returns. Hardcoding a matching "maxItems" here would create a
+     * second, easily-forgotten place to keep in sync with the config
+     * value, for a constraint Laravel already enforces safely after the
+     * fact. See docs/product/DERIVED_METRICS.md "max_derived_metrics".
+     *
+     * @return array<string, mixed>
+     */
+    private function derivedMetricsPlanSchema(): array
+    {
+        $operand = [
+            'type' => 'object',
+            'properties' => [
+                'metric' => ['type' => 'string'],
+                'aggregation' => [
+                    'type' => 'string',
+                    'enum' => ['sum', 'count', 'avg'],
+                ],
+            ],
+            'required' => ['metric', 'aggregation'],
+            'additionalProperties' => false,
+        ];
+
+        return [
+            'type' => 'object',
+            'properties' => [
+                'derived_metrics' => [
+                    'type' => 'array',
+                    'items' => [
+                        'type' => 'object',
+                        'properties' => [
+                            'name' => ['type' => 'string'],
+                            'operator' => [
+                                'type' => 'string',
+                                'enum' => ['divide', 'multiply', 'add', 'subtract', 'percentage'],
+                            ],
+                            'left' => $operand,
+                            'right' => $operand,
+                            'group_by' => ['type' => 'string'],
+                        ],
+                        'required' => ['name', 'operator', 'left', 'right', 'group_by'],
+                        'additionalProperties' => false,
+                    ],
+                ],
+            ],
+            'required' => ['derived_metrics'],
             'additionalProperties' => false,
         ];
     }

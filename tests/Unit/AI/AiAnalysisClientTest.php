@@ -100,6 +100,7 @@ class AiAnalysisClientTest extends TestCase
             'user_prompt' => $this->context()['user_prompt'],
             'data_profile' => $this->context()['data_profile'],
             'aggregated_metrics' => $this->context()['aggregated_metrics'],
+            'derived_metrics' => $this->context()['derived_metrics'],
         ], $input);
 
         $format = $payload['text']['format'];
@@ -347,6 +348,189 @@ class AiAnalysisClientTest extends TestCase
     }
 
     /**
+     * planMetrics(): request shape, and — critically — that aggregated_metrics'
+     * actual numeric values are never sent to the Metric Planning call.
+     */
+    public function test_plan_metrics_sends_the_planning_request_and_returns_structured_output(): void
+    {
+        $payload = null;
+        $planResponse = json_encode(['derived_metrics' => []], JSON_THROW_ON_ERROR);
+
+        Http::fake(function (Request $request) use (&$payload, $planResponse) {
+            $payload = json_decode($request->body(), true, flags: JSON_THROW_ON_ERROR);
+
+            return Http::response($this->completedResponse($planResponse));
+        });
+
+        $result = (new AiAnalysisClient)->planMetrics($this->planningContext());
+
+        $this->assertSame($planResponse, $result);
+        Http::assertSentCount(1);
+        Http::assertSent(function (Request $request): bool {
+            return $request->method() === 'POST'
+                && $request->url() === 'https://api.openai.com/v1/responses'
+                && $request->hasHeader('Authorization', 'Bearer test-openai-key');
+        });
+
+        $this->assertIsArray($payload);
+        $this->assertSame('gpt-5.4-mini', $payload['model']);
+        $this->assertFalse($payload['store']);
+        $this->assertSame($this->planningContext()['system_instruction'], $payload['instructions']);
+
+        $input = json_decode(
+            $payload['input'][0]['content'][0]['text'],
+            true,
+            flags: JSON_THROW_ON_ERROR,
+        );
+
+        // user_prompt is included.
+        $this->assertSame($this->planningContext()['user_prompt'], $input['user_prompt']);
+
+        // Available dimension / measure / aggregation *names* are included...
+        $this->assertSame($this->planningContext()['available_dimensions'], $input['available_dimensions']);
+        $this->assertSame($this->planningContext()['available_measures'], $input['available_measures']);
+        $this->assertSame($this->planningContext()['available_aggregations'], $input['available_aggregations']);
+
+        // ...and so is max_derived_metrics, config-driven and forwarded
+        // verbatim — this is the only channel through which the AI learns
+        // the actual limit; the System Instruction never hardcodes it.
+        $this->assertSame($this->planningContext()['max_derived_metrics'], $input['max_derived_metrics']);
+
+        // ...but no aggregated_metrics numeric values, data_profile, or
+        // derived_metrics are present anywhere in the planning payload.
+        $this->assertArrayNotHasKey('aggregated_metrics', $input);
+        $this->assertArrayNotHasKey('data_profile', $input);
+        $this->assertArrayNotHasKey('derived_metrics', $input);
+
+        // Only the 5 expected top-level keys are sent — no numeric
+        // aggregated_metrics values (sums/counts/averages) sneak in
+        // through an unexpected key.
+        $this->assertSame(
+            ['user_prompt', 'available_dimensions', 'available_measures', 'available_aggregations', 'max_derived_metrics'],
+            array_keys($input),
+        );
+
+        $format = $payload['text']['format'];
+        $this->assertSame('json_schema', $format['type']);
+        $this->assertSame('reportflow_derived_metrics_plan', $format['name']);
+        $this->assertTrue($format['strict']);
+
+        $schema = $format['schema'];
+        $this->assertSame(['derived_metrics'], $schema['required']);
+        $this->assertFalse($schema['additionalProperties']);
+
+        // No hardcoded "maxItems" on the derived_metrics array: the limit
+        // is enforced by config-driven Planning Context guidance plus
+        // CalculateDerivedMetricsAction's application-side validation, not
+        // by the Structured Output schema itself (see
+        // docs/product/DERIVED_METRICS.md "max_derived_metrics").
+        $this->assertArrayNotHasKey('maxItems', $schema['properties']['derived_metrics']);
+
+        $item = $schema['properties']['derived_metrics']['items'];
+        $this->assertSame(['name', 'operator', 'left', 'right', 'group_by'], $item['required']);
+        $this->assertFalse($item['additionalProperties']);
+        $this->assertSame(
+            ['divide', 'multiply', 'add', 'subtract', 'percentage'],
+            $item['properties']['operator']['enum'],
+        );
+        $this->assertSame('string', $item['properties']['group_by']['type']);
+
+        $operand = $item['properties']['left'];
+        $this->assertSame(['metric', 'aggregation'], $operand['required']);
+        $this->assertFalse($operand['additionalProperties']);
+        $this->assertSame(['sum', 'count', 'avg'], $operand['properties']['aggregation']['enum']);
+        $this->assertSame($operand, $item['properties']['right']);
+    }
+
+    public function test_plan_metrics_returns_a_non_empty_derived_metrics_plan_when_the_ai_proposes_one(): void
+    {
+        $plan = [
+            'derived_metrics' => [
+                [
+                    'name' => 'ROAS',
+                    'operator' => 'divide',
+                    'left' => ['metric' => 'revenue', 'aggregation' => 'sum'],
+                    'right' => ['metric' => 'spend', 'aggregation' => 'sum'],
+                    'group_by' => 'channel',
+                ],
+            ],
+        ];
+        $planResponse = json_encode($plan, JSON_THROW_ON_ERROR);
+
+        Http::fake([
+            'https://api.openai.com/v1/responses' => Http::response($this->completedResponse($planResponse)),
+        ]);
+
+        $result = (new AiAnalysisClient)->planMetrics($this->planningContext());
+
+        $this->assertSame($planResponse, $result);
+    }
+
+    public function test_plan_metrics_throws_when_the_api_key_is_not_configured(): void
+    {
+        config(['services.openai.key' => null]);
+        Http::fake();
+
+        try {
+            (new AiAnalysisClient)->planMetrics($this->planningContext());
+
+            $this->fail('Expected a RuntimeException.');
+        } catch (RuntimeException $exception) {
+            $this->assertSame('OpenAI API key is not configured.', $exception->getMessage());
+        }
+
+        Http::assertNothingSent();
+    }
+
+    public function test_plan_metrics_throws_for_unsuccessful_http_responses(): void
+    {
+        Http::fake([
+            'https://api.openai.com/v1/responses' => Http::response([], 500),
+        ]);
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('OpenAI API request failed with HTTP status 500.');
+
+        (new AiAnalysisClient)->planMetrics($this->planningContext());
+    }
+
+    public function test_plan_metrics_throws_when_openai_refuses_the_request(): void
+    {
+        Http::fake([
+            'https://api.openai.com/v1/responses' => Http::response([
+                'status' => 'completed',
+                'output' => [[
+                    'type' => 'message',
+                    'content' => [[
+                        'type' => 'refusal',
+                        'refusal' => 'Sensitive request.',
+                    ]],
+                ]],
+            ]),
+        ]);
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('OpenAI refused the metric planning request.');
+
+        (new AiAnalysisClient)->planMetrics($this->planningContext());
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function planningContext(): array
+    {
+        return [
+            'system_instruction' => 'Propose only derived metrics relevant to the user request.',
+            'user_prompt' => 'Compare channel efficiency.',
+            'available_dimensions' => ['channel', 'region'],
+            'available_measures' => ['spend', 'revenue', 'conversions'],
+            'available_aggregations' => ['sum', 'count', 'avg'],
+            'max_derived_metrics' => 5,
+        ];
+    }
+
+    /**
      * @return array<string, mixed>
      */
     private function context(): array
@@ -368,6 +552,10 @@ class AiAnalysisClientTest extends TestCase
             'aggregated_metrics' => [
                 'dimensions' => [],
                 'measures' => [],
+            ],
+            'derived_metrics' => [
+                'metrics' => [],
+                'rejected' => [],
             ],
             'output_schema' => [
                 'summary' => 'string',

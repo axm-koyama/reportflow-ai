@@ -189,6 +189,12 @@ BuildAnalysisContextAction 内では Data Profile を再計算しない。
 
 ## 6. Output Contract
 
+> **Phase 1 / Phase 2 で更新**: `BuildAnalysisContextAction` はこのAI_CONTEXT.md
+> が最初に構想した4-key contractに加え、Phase 1で `aggregated_metrics`
+> (docs/product/METRIC_AGGREGATION.md)、Phase 2で `derived_metrics`
+> (docs/product/DERIVED_METRICS.md)を追加している。以下は現在の実際の
+> contract。
+
 `BuildAnalysisContextAction` は以下の構造を返す。
 
 ```php
@@ -196,11 +202,16 @@ BuildAnalysisContextAction 内では Data Profile を再計算しない。
     'system_instruction' => string,
     'user_prompt' => string,
     'data_profile' => array,
+    'aggregated_metrics' => array,
+    'derived_metrics' => array,
     'output_schema' => array,
 ]
 ```
 
-このarrayを V1では `AI Context` と呼ぶ。
+このarrayを `AI Context` と呼ぶ(これは`AiAnalysisClient::analyze()` —
+最終分析呼び出し — 用のAI Contextである。Phase 2ではこれとは別に、
+`PlanDerivedMetricsAction`が構築する、より小さな Metric Planning Context
+が存在する。詳細はdocs/product/DERIVED_METRICS.md §3を参照)。
 
 ---
 
@@ -222,6 +233,14 @@ BuildAnalysisContextAction 内では Data Profile を再計算しない。
         'numeric_statistics' => [],
         'categorical_summaries' => [],
         'sample_rows' => [],
+    ],
+    'aggregated_metrics' => [
+        'dimensions' => [],
+        'measures' => [],
+    ],
+    'derived_metrics' => [
+        'metrics' => [],
+        'rejected' => [],
     ],
     'output_schema' => [
         // ReportFlow AI Result Schema

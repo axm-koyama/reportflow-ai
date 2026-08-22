@@ -70,11 +70,53 @@ class BuildAnalysisContextActionTest extends TestCase
     }
 
     /**
+     * A representative CalculateDerivedMetricsAction-shaped output, used
+     * as-is across tests. BuildAnalysisContextAction must never recompute
+     * or alter this.
+     *
+     * @return array<string, mixed>
+     */
+    private function sampleDerivedMetrics(): array
+    {
+        return [
+            'metrics' => [
+                [
+                    'name' => 'ROAS',
+                    'operator' => 'divide',
+                    'left' => ['metric' => 'revenue', 'aggregation' => 'sum'],
+                    'right' => ['metric' => 'spend', 'aggregation' => 'sum'],
+                    'group_by' => 'channel',
+                    'groups' => [
+                        ['value' => 'Paid Search', 'result' => 7.94],
+                    ],
+                ],
+            ],
+            'rejected' => [],
+        ];
+    }
+
+    /**
+     * Build a context using the sample fixtures, for tests that don't
+     * care about the specific input values.
+     *
+     * @return array<string, mixed>
+     */
+    private function buildContext(string $prompt = '分析してください'): array
+    {
+        return (new BuildAnalysisContextAction)->execute(
+            $prompt,
+            $this->sampleDataProfile(),
+            $this->sampleAggregatedMetrics(),
+            $this->sampleDerivedMetrics(),
+        );
+    }
+
+    /**
      * 1. system_instruction がstringで返る
      */
     public function test_system_instruction_is_a_string(): void
     {
-        $context = (new BuildAnalysisContextAction)->execute('分析してください', $this->sampleDataProfile(), $this->sampleAggregatedMetrics());
+        $context = $this->buildContext();
 
         $this->assertIsString($context['system_instruction']);
         $this->assertNotSame('', $context['system_instruction']);
@@ -87,7 +129,7 @@ class BuildAnalysisContextActionTest extends TestCase
     {
         $prompt = "  各広告チャネルの成果を比較し、\n効率が悪いチャネルを分析してください。  ";
 
-        $context = (new BuildAnalysisContextAction)->execute($prompt, $this->sampleDataProfile(), $this->sampleAggregatedMetrics());
+        $context = $this->buildContext($prompt);
 
         $this->assertSame($prompt, $context['user_prompt']);
     }
@@ -99,7 +141,12 @@ class BuildAnalysisContextActionTest extends TestCase
     {
         $dataProfile = $this->sampleDataProfile();
 
-        $context = (new BuildAnalysisContextAction)->execute('分析してください', $dataProfile, $this->sampleAggregatedMetrics());
+        $context = (new BuildAnalysisContextAction)->execute(
+            '分析してください',
+            $dataProfile,
+            $this->sampleAggregatedMetrics(),
+            $this->sampleDerivedMetrics(),
+        );
 
         $this->assertSame($dataProfile, $context['data_profile']);
     }
@@ -111,9 +158,31 @@ class BuildAnalysisContextActionTest extends TestCase
     {
         $aggregatedMetrics = $this->sampleAggregatedMetrics();
 
-        $context = (new BuildAnalysisContextAction)->execute('分析してください', $this->sampleDataProfile(), $aggregatedMetrics);
+        $context = (new BuildAnalysisContextAction)->execute(
+            '分析してください',
+            $this->sampleDataProfile(),
+            $aggregatedMetrics,
+            $this->sampleDerivedMetrics(),
+        );
 
         $this->assertSame($aggregatedMetrics, $context['aggregated_metrics']);
+    }
+
+    /**
+     * 3c. derived_metrics が入力arrayと完全一致する（再計算等をしない）
+     */
+    public function test_derived_metrics_matches_the_input_array_exactly(): void
+    {
+        $derivedMetrics = $this->sampleDerivedMetrics();
+
+        $context = (new BuildAnalysisContextAction)->execute(
+            '分析してください',
+            $this->sampleDataProfile(),
+            $this->sampleAggregatedMetrics(),
+            $derivedMetrics,
+        );
+
+        $this->assertSame($derivedMetrics, $context['derived_metrics']);
     }
 
     /**
@@ -121,7 +190,7 @@ class BuildAnalysisContextActionTest extends TestCase
      */
     public function test_output_schema_is_present(): void
     {
-        $context = (new BuildAnalysisContextAction)->execute('分析してください', $this->sampleDataProfile(), $this->sampleAggregatedMetrics());
+        $context = $this->buildContext();
 
         $this->assertArrayHasKey('output_schema', $context);
         $this->assertIsArray($context['output_schema']);
@@ -257,7 +326,7 @@ class BuildAnalysisContextActionTest extends TestCase
      */
     public function test_system_instruction_includes_the_key_safety_rules(): void
     {
-        $context = (new BuildAnalysisContextAction)->execute('分析してください', $this->sampleDataProfile(), $this->sampleAggregatedMetrics());
+        $context = $this->buildContext();
         $instruction = $context['system_instruction'];
 
         // Do not invent unsupported facts.
@@ -283,14 +352,41 @@ class BuildAnalysisContextActionTest extends TestCase
     }
 
     /**
-     * Output contract: 想定される5つのtop-level keyのみを返す
+     * System Instruction: derived_metrics固有のルールが含まれることを確認する
+     */
+    public function test_system_instruction_includes_the_derived_metrics_rules(): void
+    {
+        $context = $this->buildContext();
+        $instruction = $context['system_instruction'];
+
+        // derived_metrics is exact, computed ground truth (same as aggregated_metrics).
+        $this->assertStringContainsString(
+            'derived_metrics (e.g. ratios such as ROAS) are exact',
+            $instruction,
+        );
+
+        // Do not recompute a derived metric.
+        $this->assertStringContainsString('Do not recompute a derived metric yourself', $instruction);
+
+        // derived_metrics is preferred over self-computed equivalents.
+        $this->assertStringContainsString('prefer it over any equivalent figure', $instruction);
+
+        // Never derive a ratio/percentage from sample_rows.
+        $this->assertStringContainsString('Never derive a ratio, percentage', $instruction);
+
+        // A null result means "could not be computed", not "assume 0".
+        $this->assertStringContainsString('could not be computed', $instruction);
+    }
+
+    /**
+     * Output contract: 想定される6つのtop-level keyのみを返す
      */
     public function test_execute_returns_exactly_the_expected_top_level_keys(): void
     {
-        $context = (new BuildAnalysisContextAction)->execute('分析してください', $this->sampleDataProfile(), $this->sampleAggregatedMetrics());
+        $context = $this->buildContext();
 
         $this->assertSame(
-            ['system_instruction', 'user_prompt', 'data_profile', 'aggregated_metrics', 'output_schema'],
+            ['system_instruction', 'user_prompt', 'data_profile', 'aggregated_metrics', 'derived_metrics', 'output_schema'],
             array_keys($context),
         );
     }
@@ -300,8 +396,6 @@ class BuildAnalysisContextActionTest extends TestCase
      */
     private function outputSchema(): array
     {
-        $context = (new BuildAnalysisContextAction)->execute('分析してください', $this->sampleDataProfile(), $this->sampleAggregatedMetrics());
-
-        return $context['output_schema'];
+        return $this->buildContext()['output_schema'];
     }
 }

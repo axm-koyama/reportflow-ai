@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Tests\Feature\AnalysisJob;
 
+use App\Actions\AnalysisJob\CalculateDerivedMetricsAction;
 use App\Actions\AnalysisJob\ExecuteAnalysisJobAction;
 use App\Actions\DataProfiling\DataProfilingAction;
 use App\Actions\DataProfiling\MetricAggregationAction;
@@ -45,7 +46,7 @@ class ExecuteAnalysisJobActionTest extends TestCase
     private function createPendingAnalysisJob(string $prompt): array
     {
         $storedPath = 'projects/1/data-files/'.Str::uuid()->toString().'.csv';
-        Storage::disk('local')->put($storedPath, "region,sales\nTokyo,100\nOsaka,200\n");
+        Storage::disk('local')->put($storedPath, "region,sales,cost\nTokyo,100,50\nOsaka,200,80\n");
 
         $dataFile = DataFile::factory()->create([
             'stored_path' => $storedPath,
@@ -56,6 +57,16 @@ class ExecuteAnalysisJobActionTest extends TestCase
         $detail = AnalysisJobDetail::factory()->for($analysisJob)->create(['prompt' => $prompt]);
 
         return [$dataFile, $analysisJob, $detail];
+    }
+
+    /**
+     * A planMetrics() response proposing no derived metrics — a valid,
+     * common outcome used by tests that don't care about Derived Metrics
+     * content, only that the pipeline reaches the final analysis call.
+     */
+    private function emptyPlanResponse(): string
+    {
+        return json_encode(['derived_metrics' => []], JSON_THROW_ON_ERROR);
     }
 
     /**
@@ -75,8 +86,9 @@ class ExecuteAnalysisJobActionTest extends TestCase
 
     /**
      * Success flow: Pending -> Processing -> Completed, through the full
-     * V1 pipeline (DataProfiling -> BuildAnalysisContext -> AiAnalysisClient
-     * -> Normalize -> markCompleted).
+     * V2 pipeline (DataProfiling -> Aggregation -> Planning -> Calculation
+     * -> BuildAnalysisContext -> AiAnalysisClient::analyze() -> Normalize
+     * -> markCompleted).
      */
     public function test_it_completes_a_pending_analysis_job_on_success(): void
     {
@@ -86,9 +98,30 @@ class ExecuteAnalysisJobActionTest extends TestCase
 
         $rawResponse = json_encode($this->structuredResult(), JSON_THROW_ON_ERROR);
 
+        $planResponse = json_encode([
+            'derived_metrics' => [
+                [
+                    'name' => 'ROAS',
+                    'operator' => 'divide',
+                    'left' => ['metric' => 'sales', 'aggregation' => 'sum'],
+                    'right' => ['metric' => 'cost', 'aggregation' => 'sum'],
+                    'group_by' => 'region',
+                ],
+            ],
+        ], JSON_THROW_ON_ERROR);
+
         $capturedContext = null;
+        $capturedPlanningContext = null;
 
         $this->mock(AiAnalysisClient::class)
+            ->shouldReceive('planMetrics')
+            ->once()
+            ->withArgs(function (array $context) use (&$capturedPlanningContext): bool {
+                $capturedPlanningContext = $context;
+
+                return true;
+            })
+            ->andReturn($planResponse)
             ->shouldReceive('analyze')
             ->once()
             ->withArgs(function (array $context) use (&$capturedContext): bool {
@@ -100,10 +133,18 @@ class ExecuteAnalysisJobActionTest extends TestCase
 
         app(ExecuteAnalysisJobAction::class)->execute($analysisJob->analysis_job_id);
 
+        // --- Metric Planning Context contract ---
+        $this->assertIsArray($capturedPlanningContext);
+        $this->assertSame($detail->prompt, $capturedPlanningContext['user_prompt']);
+        $this->assertSame(['region'], $capturedPlanningContext['available_dimensions']);
+        $this->assertEqualsCanonicalizing(['sales', 'cost'], $capturedPlanningContext['available_measures']);
+        $this->assertSame(['sum', 'count', 'avg'], $capturedPlanningContext['available_aggregations']);
+        $this->assertSame(config('derived_metrics.max_derived_metrics'), $capturedPlanningContext['max_derived_metrics']);
+
         // --- AI Context handoff contract ---
         $this->assertIsArray($capturedContext);
         $this->assertSame(
-            ['system_instruction', 'user_prompt', 'data_profile', 'aggregated_metrics', 'output_schema'],
+            ['system_instruction', 'user_prompt', 'data_profile', 'aggregated_metrics', 'derived_metrics', 'output_schema'],
             array_keys($capturedContext),
         );
 
@@ -120,6 +161,17 @@ class ExecuteAnalysisJobActionTest extends TestCase
         // 独立に実行した結果と完全一致することで検証)
         $expectedAggregatedMetrics = (new MetricAggregationAction)->execute($dataFile->fresh(), $expectedDataProfile);
         $this->assertSame($expectedAggregatedMetrics, $capturedContext['aggregated_metrics']);
+
+        // CalculateDerivedMetricsAction が Planning の直後に実行され、
+        // Derived Metrics が生成される (同一のproposed definitionへ
+        // 独立に実行した結果と完全一致することで検証)
+        $expectedDerivedMetrics = (new CalculateDerivedMetricsAction)->execute(
+            json_decode($planResponse, true)['derived_metrics'],
+            $expectedAggregatedMetrics,
+        );
+        $this->assertSame($expectedDerivedMetrics, $capturedContext['derived_metrics']);
+        $this->assertSame([], $capturedContext['derived_metrics']['rejected']);
+        $this->assertSame('ROAS', $capturedContext['derived_metrics']['metrics'][0]['name']);
 
         // 4. BuildAnalysisContextAction が呼ばれたことを示す残りの契約
         $this->assertIsString($capturedContext['system_instruction']);
@@ -141,6 +193,10 @@ class ExecuteAnalysisJobActionTest extends TestCase
         $this->assertSame($this->structuredResult(), $detail->result);
         $this->assertNotNull($detail->completed_at);
         $this->assertNull($detail->error_message);
+
+        // Planning's own raw AI response ($planResponse) is never
+        // persisted anywhere on AnalysisJobDetail — raw_response holds
+        // only the final analysis response, exactly as asserted above.
     }
 
     /**
@@ -186,6 +242,9 @@ class ExecuteAnalysisJobActionTest extends TestCase
         [, $analysisJob, $detail] = $this->createPendingAnalysisJob('分析してください。');
 
         $this->mock(AiAnalysisClient::class)
+            ->shouldReceive('planMetrics')
+            ->once()
+            ->andReturn($this->emptyPlanResponse())
             ->shouldReceive('analyze')
             ->once()
             ->andThrow(new RuntimeException('AI provider unavailable'));
@@ -216,6 +275,9 @@ class ExecuteAnalysisJobActionTest extends TestCase
         [, $analysisJob, $detail] = $this->createPendingAnalysisJob('分析してください。');
 
         $this->mock(AiAnalysisClient::class)
+            ->shouldReceive('planMetrics')
+            ->once()
+            ->andReturn($this->emptyPlanResponse())
             ->shouldReceive('analyze')
             ->once()
             ->andReturn('{not valid json');
@@ -238,7 +300,8 @@ class ExecuteAnalysisJobActionTest extends TestCase
 
     /**
      * Data Profiling失敗（例: CSVが不正）も同様に例外が伝播し、
-     * Processing 維持・AiAnalysisClientは一切呼ばれない。
+     * Processing 維持・AiAnalysisClientは一切呼ばれない
+     * （Planning・最終Analysisいずれも呼ばれない）。
      */
     public function test_data_profiling_failure_propagates_before_calling_the_ai_client(): void
     {
@@ -249,7 +312,9 @@ class ExecuteAnalysisJobActionTest extends TestCase
         $analysisJob = AnalysisJob::factory()->for($dataFile)->create();
         $detail = AnalysisJobDetail::factory()->for($analysisJob)->create();
 
-        $this->mock(AiAnalysisClient::class)->shouldNotReceive('analyze');
+        $this->mock(AiAnalysisClient::class)
+            ->shouldNotReceive('planMetrics')
+            ->shouldNotReceive('analyze');
 
         try {
             app(ExecuteAnalysisJobAction::class)->execute($analysisJob->analysis_job_id);

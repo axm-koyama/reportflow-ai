@@ -5,41 +5,50 @@ declare(strict_types=1);
 namespace App\Actions\AnalysisJob;
 
 /**
- * Builds the provider-neutral AI Context passed to AiAnalysisClient.
+ * Builds the provider-neutral AI Context passed to AiAnalysisClient::analyze().
  *
  * Combines the fixed System Instruction, the user's prompt (kept as-is),
  * the DataProfilingAction output (kept as-is), the MetricAggregationAction
- * output (kept as-is), and the ReportFlow AI Output Schema into a single
- * AI Request Context. See:
+ * output (kept as-is), the CalculateDerivedMetricsAction output (kept
+ * as-is), and the ReportFlow AI Output Schema into a single AI Request
+ * Context. See:
  *
  * - docs/product/AI_CONTEXT.md
  * - docs/product/AI_ANALYSIS.md
  * - docs/product/DATA_PROFILING.md
  * - docs/product/METRIC_AGGREGATION.md
+ * - docs/product/DERIVED_METRICS.md
+ *
+ * This action builds the Context for the *final analysis* AI call only.
+ * The separate, earlier Metric Planning AI call has its own, much smaller
+ * context built by PlanDerivedMetricsAction — this action is never
+ * involved in planning.
  *
  * This is a pure application transformation: it does not read CSVs, call
  * an AI provider, update AnalysisJob status, or touch the database.
- * It does not validate the prompt, the Data Profile, or the Aggregated
- * Metrics (see AI_CONTEXT.md §23/§24 — all are treated as already valid
- * by the time they reach this action).
+ * It does not validate the prompt, the Data Profile, the Aggregated
+ * Metrics, or the Derived Metrics (see AI_CONTEXT.md §23/§24 — all are
+ * treated as already valid by the time they reach this action).
  */
 class BuildAnalysisContextAction
 {
     /**
-     * Build the AI Context for one analysis request.
+     * Build the AI Context for one final analysis request.
      *
      * @param string $prompt
      * @param array<string, mixed> $dataProfile
      * @param array<string, mixed> $aggregatedMetrics the MetricAggregationAction output for the same DataFile
+     * @param array<string, mixed> $derivedMetrics the CalculateDerivedMetricsAction output for the same AnalysisJob
      * @return array<string, mixed>
      */
-    public function execute(string $prompt, array $dataProfile, array $aggregatedMetrics): array
+    public function execute(string $prompt, array $dataProfile, array $aggregatedMetrics, array $derivedMetrics): array
     {
         return [
             'system_instruction' => $this->systemInstruction(),
             'user_prompt' => $prompt,
             'data_profile' => $dataProfile,
             'aggregated_metrics' => $aggregatedMetrics,
+            'derived_metrics' => $derivedMetrics,
             'output_schema' => $this->outputSchema(),
         ];
     }
@@ -93,6 +102,26 @@ class BuildAnalysisContextAction
             13. Whenever a number in aggregated_metrics answers a numeric question
             (totals, comparisons, rankings across groups), use that number instead
             of reasoning from sample_rows.
+
+            14. The supplied derived_metrics (e.g. ratios such as ROAS) are exact
+            values computed by the application from aggregated_metrics, not an
+            estimate. Treat them as ground truth, exactly like aggregated_metrics.
+
+            15. Do not recompute a derived metric yourself. If derived_metrics
+            already contains a value that answers the user's question, use that
+            value instead of dividing, multiplying, adding, or subtracting
+            aggregated_metrics figures on your own.
+
+            16. When derived_metrics contains a metric relevant to the user's
+            request, prefer it over any equivalent figure you could compute
+            yourself from aggregated_metrics or sample_rows.
+
+            17. Never derive a ratio, percentage, or other calculated figure from
+            sample_rows under any circumstances.
+
+            18. A derived_metrics group entry with "result": null means that value
+            could not be computed (for example, division by zero or missing data)
+            — state this as insufficient data rather than guessing a number.
             TEXT;
     }
 

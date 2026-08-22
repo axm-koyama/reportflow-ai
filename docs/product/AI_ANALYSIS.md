@@ -942,6 +942,17 @@ AI Context
 AI
 ```
 
+> **Derived Metrics(Phase 2で実装済み)**: 上記の「Required Aggregation」を
+> AIが直接判断してLaravelに指示する仕組みを、ROAS等の比率指標に限定した形で
+> `PlanDerivedMetricsAction` + `CalculateDerivedMetricsAction`として実装した。
+> AIは`{"operator": "divide", "left": {...}, "right": {...}, "group_by": ...}`
+> という構造化された`CalculationDefinition`を提案し(自由な数式文字列ではない)、
+> Laravelがallow-listされた5つの演算(`divide`/`multiply`/`add`/`subtract`/
+> `percentage`)のみを`eval`なしで実行する。詳細はdocs/product/DERIVED_METRICS.mdを参照。
+> AIへの入力はaggregated_metricsの2倍の呼び出し(Planning + 最終Analysis)を
+> 必要とする点、およびgroup_byが必須でgrand total(全体集計)には対応していない
+> 点が、上記で構想されていた汎用Aggregation機構との違いである。
+
 ---
 
 ### 22.2 Anomaly Candidates

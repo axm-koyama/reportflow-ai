@@ -412,20 +412,28 @@ AI
 
 ---
 
-## 15. Phase 2 (予定)
+## 15. Phase 2 (実装済み)
 
-Phase 2では、以下を別ステップとして検討する。
+> **実装済み**: §15.1で構想していた「AI提案式の実行」は
+> `PlanDerivedMetricsAction` + `CalculateDerivedMetricsAction`として実装した。
+> 詳細は docs/product/DERIVED_METRICS.md を参照。
 
 ### 15.1 AI提案式の実行
 
-AIが「どの集計列とどの集計列を、どういう式で組み合わせたいか」を
-提案し(例: `{"metric": "ROAS", "formula": "revenue_sum / spend_sum", "group_by": "channel"}`)、
+AIが「どの集計列とどの集計列を、どういう式で組み合わせたいか」を提案し、
 Laravelがその式を正確に実行する。AIには四則演算をさせない。
 
+> 実装時、`"formula": "revenue_sum / spend_sum"` のような自由文字列は採用せず、
+> `{"operator": "divide", "left": {...}, "right": {...}}` という**構造化された
+> allow-list operator形式**とした(`eval`や式パーサーを一切使わないため)。
+> 詳細は docs/product/DERIVED_METRICS.md §4-5 を参照。
+
 これにより、ROAS / CPA / CVRのような比率指標を、列名にハードコードする
-ことなく、任意のCSV・任意の業務ドメインに対応できる形で実現する。
+ことなく、任意のCSV・任意の業務ドメインに対応できる形で実現した。
 
 ### 15.2 予算再配分
+
+> Phase 2では未実装。docs/product/DERIVED_METRICS.md §17(Phase 2.1候補)を参照。
 
 Phase 15.1で得られる比率指標(ROAS等)を根拠に、AIが来週の予算配分案
 (現在配分の維持を基本方針とした再配分)を提案し、Laravel側が
@@ -433,6 +441,6 @@ Phase 15.1で得られる比率指標(ROAS等)を根拠に、AIが来週の予�
 
 ### 15.3 その他
 
-- `CsvDatasetReader` 等の共有CSV読み込みコンポーネント抽出の再検討
+- `CsvDatasetReader` 等の共有CSV読み込みコンポーネント抽出の再検討 — Phase 2でも未実施(引き続き候補)
 - Aggregated Metricsの妥当性検証(AIが返した `metrics.value` が
-  `aggregated_metrics` の値と一致することの検証)
+  `aggregated_metrics` の値と一致することの検証) — Phase 2でも未実施(引き続き候補)
