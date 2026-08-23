@@ -140,6 +140,52 @@ class PlanDerivedMetricsActionTest extends TestCase
         $this->assertStringContainsString('ignore that hint', $instruction);
     }
 
+    /**
+     * Regression for a real-API observation (Phase 3-B sales_analysis
+     * E2E): Planning AI proposed "group_by": "カテゴリ" (the
+     * analysis_template field's label) instead of "分類" (the real
+     * dimension column name actually present in available_dimensions),
+     * and CalculateDerivedMetricsAction correctly rejected it as
+     * "unknown_group_by" — the derived metric was lost rather than
+     * computed. The System Instruction must explicitly demand an exact,
+     * character-for-character copy of an available_dimensions value, and
+     * explicitly rule out translating it or substituting a Template field
+     * label, using this exact incident as its own worked example.
+     */
+    public function test_system_instruction_requires_group_by_to_be_an_exact_copy_of_an_available_dimension(): void
+    {
+        $instruction = $this->capturePlanningContext()['system_instruction'];
+
+        $this->assertStringContainsString('exact', $instruction);
+        $this->assertStringContainsString('character-for-character', $instruction);
+        $this->assertStringContainsString('never a translation', $instruction);
+        $this->assertStringContainsString('field label', $instruction);
+        // The worked example uses the exact real-world incident: the real
+        // column ("分類") must be used, not its English/Japanese synonym
+        // or the Template's own field label ("カテゴリ").
+        $this->assertStringContainsString('分類', $instruction);
+        $this->assertStringContainsString('カテゴリ', $instruction);
+    }
+
+    /**
+     * available_dimensions must reach the Planning Context as the exact,
+     * unmodified real column names from aggregated_metrics — including
+     * non-ASCII (Japanese) column names — since Rule 4a's "exact copy"
+     * instruction is only meaningful if the string it must be copied from
+     * is itself preserved verbatim this far.
+     */
+    public function test_available_dimensions_preserves_real_japanese_column_names_verbatim(): void
+    {
+        $context = $this->capturePlanningContext(aggregatedMetrics: [
+            'dimensions' => [
+                ['dimension' => '分類', 'group_count' => 2, 'groups' => []],
+            ],
+            'measures' => ['売上金額', '販売数量'],
+        ]);
+
+        $this->assertSame(['分類'], $context['available_dimensions']);
+    }
+
     // --- max_derived_metrics: config as Single Source of Truth -----------
 
     public function test_planning_context_includes_max_derived_metrics(): void

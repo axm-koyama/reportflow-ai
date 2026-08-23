@@ -36,8 +36,22 @@
 | by semantic field key (not CSV column name) and an 'operator_hint' from
 | CalculateDerivedMetricsAction's allowed operator list. Planning AI
 | translates these into real CalculationDefinitions using column_mapping;
-| a hint referencing an unmapped field is simply ignored — it is never
-| enforced by Laravel.
+| a hint whose left_field/right_field is not both a "mapped" column is
+| deterministically filtered out by ResolveAnalysisTemplateAction before
+| either AI call ever sees it (see docs/product/ANALYSIS_TEMPLATE_MODULE.md
+| §9.1) — this is never left to Planning AI's own judgment.
+|
+| A 'temporal' field (e.g. 'date') is fully supported by Column Mapping —
+| it resolves to a real column and is recorded in column_mapping like any
+| other field. As of Phase 3-B it is a mapping-only concept, however:
+| MetricAggregationAction never selects a 'date'/'datetime'-inferred
+| column as an aggregation dimension (it only aggregates
+| inferred_type === 'string' columns), so a temporal field never appears
+| in aggregated_metrics.dimensions, is never usable as a
+| CalculationDefinition group_by, and is never used to recompute a
+| time-series trend from sample_rows. See
+| docs/product/ANALYSIS_TEMPLATE_MODULE.md §15 for the full rationale and
+| the planned future Temporal Aggregation / Trend Analysis extension.
 |
 */
 
@@ -90,6 +104,53 @@ return [
                 'left_field' => 'clicks',
                 'right_field' => 'impressions',
                 'operator_hint' => 'percentage',
+            ],
+        ],
+    ],
+
+    'sales_analysis' => [
+        'name' => '売上分析',
+        'description' => '商品・カテゴリ・店舗・地域・顧客など、データに存在する切り口で売上規模と構成を分析します。',
+
+        'fields' => [
+            'revenue' => ['kind' => 'measure', 'label' => '売上'],
+            'quantity' => ['kind' => 'measure', 'label' => '数量'],
+            'orders' => ['kind' => 'measure', 'label' => '注文数'],
+            'product' => ['kind' => 'dimension', 'label' => '商品'],
+            'category' => ['kind' => 'dimension', 'label' => 'カテゴリ'],
+            'store' => ['kind' => 'dimension', 'label' => '店舗'],
+            'region' => ['kind' => 'dimension', 'label' => '地域'],
+            'customer' => ['kind' => 'dimension', 'label' => '顧客'],
+            'date' => ['kind' => 'temporal', 'label' => '日付'],
+        ],
+
+        // Only "revenue" is required: Sales CSVs vary widely in shape, and
+        // every other field (quantity/orders/product/category/store/region/
+        // customer/date) is optional — whichever of them actually resolves
+        // simply becomes an available cut for the analysis, per
+        // docs/product/ANALYSIS_TEMPLATE_MODULE.md §14.
+        'required_fields' => ['revenue'],
+        'required_field_groups' => [],
+
+        // "date" is deliberately not listed as an aggregation cut here: as
+        // of Phase 3-B it is Column-Mapping-only (see the file-level
+        // docblock above and docs/product/ANALYSIS_TEMPLATE_MODULE.md
+        // §15) — it is never an aggregated_metrics dimension, so it must
+        // not be described to the AI as something it can group sales by.
+        'instruction' => '商品・カテゴリ・店舗・地域・顧客など、実際に利用可能な集計切り口を分析対象とし、売上の規模と構成における特徴的な傾向や偏りがあれば指摘し、可能であれば改善点も示してください。日付列が存在する場合、日付情報を含むデータであることの認識には利用できますが、このPhaseでは日付範囲の確定、日付別・月別・週別などの時系列集計、前年比・前月比・前週比などの期間比較には使用しないでください。',
+
+        'recommended_derived_metrics' => [
+            [
+                'name' => 'average_unit_price',
+                'left_field' => 'revenue',
+                'right_field' => 'quantity',
+                'operator_hint' => 'divide',
+            ],
+            [
+                'name' => 'average_order_value',
+                'left_field' => 'revenue',
+                'right_field' => 'orders',
+                'operator_hint' => 'divide',
             ],
         ],
     ],

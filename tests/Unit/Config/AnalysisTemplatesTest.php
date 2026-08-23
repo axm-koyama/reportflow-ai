@@ -145,4 +145,52 @@ class AnalysisTemplatesTest extends TestCase
             $groups[0],
         );
     }
+
+    // --- sales_analysis (Phase 3-B) ------------------------------------
+
+    public function test_sales_analysis_template_exists(): void
+    {
+        $this->assertIsArray(config('analysis_templates.sales_analysis'));
+    }
+
+    /**
+     * "revenue" is the only required field — every other semantic field
+     * (quantity/orders/product/category/store/region/customer/date) is
+     * optional, per docs/product/ANALYSIS_TEMPLATE_MODULE.md §14: Sales
+     * CSVs vary widely in shape, and whichever optional field actually
+     * resolves simply becomes an available cut for the analysis.
+     */
+    public function test_sales_analysis_requires_only_revenue(): void
+    {
+        $this->assertSame(['revenue'], config('analysis_templates.sales_analysis.required_fields'));
+        $this->assertSame([], config('analysis_templates.sales_analysis.required_field_groups'));
+    }
+
+    /**
+     * "date" is declared as a "temporal" field like ad_performance's own
+     * "date" field — Column Mapping candidate filtering (kind -> inferred_type)
+     * is identical regardless of Template, so this is a config-shape
+     * assertion, not new Framework behavior.
+     */
+    public function test_sales_analysis_date_field_is_temporal(): void
+    {
+        $this->assertSame('temporal', config('analysis_templates.sales_analysis.fields.date.kind'));
+    }
+
+    /**
+     * average_unit_price = revenue/quantity, average_order_value =
+     * revenue/orders — these must never be swapped (see the Phase 3-B
+     * design discussion distinguishing the two).
+     */
+    public function test_sales_analysis_recommended_derived_metrics_use_the_correct_field_pairs(): void
+    {
+        $recommendations = collect(config('analysis_templates.sales_analysis.recommended_derived_metrics'))
+            ->keyBy('name');
+
+        $this->assertSame('revenue', $recommendations['average_unit_price']['left_field']);
+        $this->assertSame('quantity', $recommendations['average_unit_price']['right_field']);
+
+        $this->assertSame('revenue', $recommendations['average_order_value']['left_field']);
+        $this->assertSame('orders', $recommendations['average_order_value']['right_field']);
+    }
 }

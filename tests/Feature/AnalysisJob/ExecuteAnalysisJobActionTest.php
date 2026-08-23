@@ -629,6 +629,195 @@ class ExecuteAnalysisJobActionTest extends TestCase
         $this->assertSame('mapped', $detail->column_mapping['impressions']['status']);
     }
 
+    // --- sales_analysis (Phase 3-B) ----------------------------------
+
+    /**
+     * @return array{0: DataFile, 1: AnalysisJob, 2: AnalysisJobDetail}
+     */
+    private function createPendingSalesAnalysisJob(string $csv, string $additionalPrompt = ''): array
+    {
+        $storedPath = 'projects/1/data-files/'.Str::uuid()->toString().'.csv';
+        Storage::disk('local')->put($storedPath, $csv);
+
+        $dataFile = DataFile::factory()->create([
+            'stored_path' => $storedPath,
+            'original_name' => 'sales.csv',
+        ]);
+
+        $analysisJob = AnalysisJob::factory()->for($dataFile)->create(['template_key' => 'sales_analysis']);
+        $detail = AnalysisJobDetail::factory()->for($analysisJob)->create(['prompt' => $additionalPrompt]);
+
+        return [$dataFile, $analysisJob, $detail];
+    }
+
+    /**
+     * Full success path with every optional field mapped: confirms both
+     * recommended hints (average_unit_price, average_order_value) survive
+     * filtering, both get computed for real by CalculateDerivedMetricsAction,
+     * and — the Phase 3-B §15 guarantee — "date" is recorded as "mapped" in
+     * column_mapping while never appearing as an aggregated_metrics
+     * dimension (MetricAggregationAction only ever selects
+     * inferred_type === 'string' columns; "date"'s inferred_type is
+     * "date", not "string").
+     */
+    public function test_it_completes_a_sales_analysis_job_with_all_optional_fields_mapped(): void
+    {
+        [, $analysisJob, $detail] = $this->createPendingSalesAnalysisJob(
+            "date,product,category,quantity,orders,revenue\n"
+            ."2026-01-01,ProductA,Food,10,8,50000\n"
+            ."2026-01-02,ProductB,Goods,5,4,30000\n"
+            ."2026-01-03,ProductA,Food,20,15,80000\n",
+        );
+
+        $mapResponse = json_encode(['mappings' => [
+            ['field' => 'revenue', 'column' => 'revenue', 'confidence' => 'high'],
+            ['field' => 'quantity', 'column' => 'quantity', 'confidence' => 'high'],
+            ['field' => 'orders', 'column' => 'orders', 'confidence' => 'high'],
+            ['field' => 'product', 'column' => 'product', 'confidence' => 'high'],
+            ['field' => 'category', 'column' => 'category', 'confidence' => 'high'],
+            ['field' => 'date', 'column' => 'date', 'confidence' => 'high'],
+        ]], JSON_THROW_ON_ERROR);
+
+        $planResponse = json_encode(['derived_metrics' => [
+            [
+                'name' => 'average_unit_price',
+                'operator' => 'divide',
+                'left' => ['metric' => 'revenue', 'aggregation' => 'sum'],
+                'right' => ['metric' => 'quantity', 'aggregation' => 'sum'],
+                'group_by' => 'product',
+            ],
+            [
+                'name' => 'average_order_value',
+                'operator' => 'divide',
+                'left' => ['metric' => 'revenue', 'aggregation' => 'sum'],
+                'right' => ['metric' => 'orders', 'aggregation' => 'sum'],
+                'group_by' => 'category',
+            ],
+        ]], JSON_THROW_ON_ERROR);
+
+        $rawResponse = json_encode($this->structuredResult(), JSON_THROW_ON_ERROR);
+
+        $capturedPlanningContext = null;
+        $capturedContext = null;
+
+        $this->mock(AiAnalysisClient::class)
+            ->shouldReceive('mapColumns')
+            ->once()
+            ->andReturn($mapResponse)
+            ->shouldReceive('planMetrics')
+            ->once()
+            ->withArgs(function (array $context) use (&$capturedPlanningContext): bool {
+                $capturedPlanningContext = $context;
+
+                return true;
+            })
+            ->andReturn($planResponse)
+            ->shouldReceive('analyze')
+            ->once()
+            ->withArgs(function (array $context) use (&$capturedContext): bool {
+                $capturedContext = $context;
+
+                return true;
+            })
+            ->andReturn($rawResponse);
+
+        app(ExecuteAnalysisJobAction::class)->execute($analysisJob->analysis_job_id);
+
+        // Both hints survived filtering (both fields they depend on are mapped).
+        $recommendedNames = array_column(
+            $capturedPlanningContext['analysis_template']['recommended_derived_metrics'],
+            'name',
+        );
+        $this->assertContains('average_unit_price', $recommendedNames);
+        $this->assertContains('average_order_value', $recommendedNames);
+
+        // Both were validated and computed for real.
+        $metricNames = array_column($capturedContext['derived_metrics']['metrics'], 'name');
+        $this->assertContains('average_unit_price', $metricNames);
+        $this->assertContains('average_order_value', $metricNames);
+        $this->assertSame([], $capturedContext['derived_metrics']['rejected']);
+
+        // "date" is mapped in column_mapping...
+        $analysisJob->refresh();
+        $detail->refresh();
+        $this->assertSame('mapped', $detail->column_mapping['date']['status']);
+        $this->assertSame('date', $detail->column_mapping['date']['column']);
+
+        // ...but is never an aggregated_metrics dimension (inferred_type
+        // "date" is not "string", so MetricAggregationAction::selectDimensions()
+        // never selects it) — "product"/"category" are, since they are the
+        // real string-typed columns.
+        $dimensionNames = array_column($capturedContext['aggregated_metrics']['dimensions'], 'dimension');
+        $this->assertNotContains('date', $dimensionNames);
+        $this->assertContains('product', $dimensionNames);
+        $this->assertContains('category', $dimensionNames);
+
+        $this->assertSame(AnalysisJobStatus::Completed, $analysisJob->status);
+    }
+
+    /**
+     * Only "revenue" (the sole required field) is mapped — every optional
+     * Template field (quantity/orders/product/category/store/region/
+     * customer/date) is never proposed at all. Both recommended hints
+     * depend on quantity/orders, so recommended_derived_metrics is empty
+     * — but Planning AI is still called normally (an empty hint list
+     * never skips the call — only an empty aggregated_metrics does — see
+     * PlanDerivedMetricsAction), and the AnalysisJob still completes.
+     *
+     * "memo" is a real CSV column with no corresponding Template semantic
+     * field at all; it exists purely so MetricAggregationAction has a
+     * dimension candidate to aggregate against (without it,
+     * aggregated_metrics.dimensions would be empty and Planning AI would
+     * never be called at all — a different, already-covered scenario).
+     * This also incidentally demonstrates that aggregation candidate
+     * selection is fully independent of Template Column Mapping (Phase
+     * 3-A's design — see docs/product/ANALYSIS_TEMPLATE_MODULE.md §9).
+     */
+    public function test_it_completes_a_sales_analysis_job_when_only_revenue_is_mapped(): void
+    {
+        [, $analysisJob, $detail] = $this->createPendingSalesAnalysisJob(
+            "revenue,memo\n50000,A\n30000,B\n80000,A\n",
+        );
+
+        $mapResponse = json_encode(['mappings' => [
+            ['field' => 'revenue', 'column' => 'revenue', 'confidence' => 'high'],
+        ]], JSON_THROW_ON_ERROR);
+
+        $rawResponse = json_encode($this->structuredResult(), JSON_THROW_ON_ERROR);
+
+        $capturedPlanningContext = null;
+
+        $this->mock(AiAnalysisClient::class)
+            ->shouldReceive('mapColumns')
+            ->once()
+            ->andReturn($mapResponse)
+            ->shouldReceive('planMetrics')
+            ->once()
+            ->withArgs(function (array $context) use (&$capturedPlanningContext): bool {
+                $capturedPlanningContext = $context;
+
+                return true;
+            })
+            ->andReturn($this->emptyPlanResponse())
+            ->shouldReceive('analyze')
+            ->once()
+            ->andReturn($rawResponse);
+
+        app(ExecuteAnalysisJobAction::class)->execute($analysisJob->analysis_job_id);
+
+        $this->assertSame([], $capturedPlanningContext['analysis_template']['recommended_derived_metrics']);
+
+        $analysisJob->refresh();
+        $detail->refresh();
+
+        $this->assertSame(AnalysisJobStatus::Completed, $analysisJob->status);
+        $this->assertSame('mapped', $detail->column_mapping['revenue']['status']);
+
+        foreach (['quantity', 'orders', 'product', 'category', 'store', 'region', 'customer', 'date'] as $optionalField) {
+            $this->assertSame('unmapped', $detail->column_mapping[$optionalField]['status']);
+        }
+    }
+
     /**
      * Required field ("channel") unresolved -> exception propagates (same
      * failure lifecycle as any other pipeline step), AnalysisJob stays

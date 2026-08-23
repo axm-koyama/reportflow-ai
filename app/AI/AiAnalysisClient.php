@@ -268,7 +268,7 @@ class AiAnalysisClient
                             'type' => 'json_schema',
                             'name' => 'reportflow_derived_metrics_plan',
                             'strict' => true,
-                            'schema' => $this->derivedMetricsPlanSchema(),
+                            'schema' => $this->derivedMetricsPlanSchema($context['available_dimensions']),
                         ],
                     ],
                 ]);
@@ -620,9 +620,37 @@ class AiAnalysisClient
      * field — this schema cannot know which measures/dimensions actually
      * exist in a given AnalysisJob's data, only their allowed *shape*.
      *
-     * "group_by" is a plain string (not nullable): Phase 2 requires
-     * group_by on every CalculationDefinition (see
-     * docs/product/DERIVED_METRICS.md "group_by must be required").
+     * "group_by" is a plain string (`{"type": "string"}`, never
+     * `{"type": ["string", "null"]}`) — Phase 2 requires group_by on
+     * every CalculationDefinition and never allowed null/grand-total (see
+     * docs/product/DERIVED_METRICS.md §10 "group_by必須(nullを許可し
+     * ない)"; CalculateDerivedMetricsAction rejects a null/missing
+     * group_by as "missing_group_by", unconditionally, independent of
+     * this schema).
+     *
+     * "group_by" additionally carries an "enum" constrained to this exact
+     * request's $availableDimensions, so the OpenAI Responses API itself
+     * refuses to return any group_by value other than one of the exact
+     * strings Planning Context offered — this is a second, API-enforced
+     * line of defense on top of PlanDerivedMetricsAction's System
+     * Instruction (which separately tells the AI to copy the string
+     * verbatim, never translate/paraphrase it), added after a real
+     * response was observed proposing a Template field *label*
+     * ("カテゴリ") instead of the real column name ("分類") that was
+     * actually present in available_dimensions —
+     * CalculateDerivedMetricsAction correctly rejected it as
+     * "unknown_group_by", but the derived metric was lost rather than
+     * computed. This "enum" only ever *narrows* an already-non-nullable
+     * string field to a fixed set of real column-name values — it never
+     * widens "type" to admit null, and $availableDimensions being empty
+     * (see the @param doc below) omits "enum" entirely rather than ever
+     * falling back to allowing null. "metric"/"aggregation" are
+     * deliberately NOT similarly constrained to available_measures here:
+     * only group_by's failure mode has been observed in practice, and
+     * constraining every operand field would meaningfully increase this
+     * schema's complexity for a risk that has not been demonstrated —
+     * CalculateDerivedMetricsAction remains the actual safety net for
+     * every field regardless.
      *
      * This schema deliberately has no "maxItems" on the "derived_metrics"
      * array. config('derived_metrics.max_derived_metrics') is the Single
@@ -635,9 +663,15 @@ class AiAnalysisClient
      * value, for a constraint Laravel already enforces safely after the
      * fact. See docs/product/DERIVED_METRICS.md "max_derived_metrics".
      *
+     * @param list<string> $availableDimensions this request's Planning
+     *        Context "available_dimensions" (always non-empty in
+     *        practice — PlanDerivedMetricsAction never calls planMetrics()
+     *        when aggregated_metrics has no dimensions at all). Left
+     *        unconstrained (no "enum") if empty, defensively, so this
+     *        never produces a JSON Schema no response could ever satisfy.
      * @return array<string, mixed>
      */
-    private function derivedMetricsPlanSchema(): array
+    private function derivedMetricsPlanSchema(array $availableDimensions): array
     {
         $operand = [
             'type' => 'object',
@@ -651,6 +685,12 @@ class AiAnalysisClient
             'required' => ['metric', 'aggregation'],
             'additionalProperties' => false,
         ];
+
+        $groupBy = ['type' => 'string'];
+
+        if ($availableDimensions !== []) {
+            $groupBy['enum'] = array_values($availableDimensions);
+        }
 
         return [
             'type' => 'object',
@@ -667,7 +707,7 @@ class AiAnalysisClient
                             ],
                             'left' => $operand,
                             'right' => $operand,
-                            'group_by' => ['type' => 'string'],
+                            'group_by' => $groupBy,
                         ],
                         'required' => ['name', 'operator', 'left', 'right', 'group_by'],
                         'additionalProperties' => false,

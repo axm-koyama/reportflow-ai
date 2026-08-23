@@ -442,11 +442,115 @@ class AiAnalysisClientTest extends TestCase
         );
         $this->assertSame('string', $item['properties']['group_by']['type']);
 
+        // "group_by" is additionally constrained to an enum built from
+        // this exact request's available_dimensions — the API itself
+        // cannot return a group_by value that isn't one of these two
+        // exact strings (see derivedMetricsPlanSchema()'s docblock for
+        // the real-API incident this defends against).
+        $this->assertSame($this->planningContext()['available_dimensions'], $item['properties']['group_by']['enum']);
+
         $operand = $item['properties']['left'];
         $this->assertSame(['metric', 'aggregation'], $operand['required']);
         $this->assertFalse($operand['additionalProperties']);
         $this->assertSame(['sum', 'count', 'avg'], $operand['properties']['aggregation']['enum']);
         $this->assertSame($operand, $item['properties']['right']);
+    }
+
+    /**
+     * The group_by enum is built fresh per request from this exact call's
+     * available_dimensions — not hardcoded, and preserves non-ASCII real
+     * column names (e.g. Japanese "分類") verbatim, character-for-character,
+     * rather than any transliterated or label-like substitute.
+     */
+    public function test_plan_metrics_constrains_group_by_to_this_requests_real_japanese_dimension_names(): void
+    {
+        $payload = null;
+        $planResponse = json_encode(['derived_metrics' => []], JSON_THROW_ON_ERROR);
+
+        Http::fake(function (Request $request) use (&$payload, $planResponse) {
+            $payload = json_decode($request->body(), true, flags: JSON_THROW_ON_ERROR);
+
+            return Http::response($this->completedResponse($planResponse));
+        });
+
+        $context = $this->planningContext();
+        $context['available_dimensions'] = ['分類', '地域'];
+
+        (new AiAnalysisClient)->planMetrics($context);
+
+        $groupByEnum = $payload['text']['format']['schema']['properties']['derived_metrics']['items']['properties']['group_by']['enum'];
+
+        $this->assertSame(['分類', '地域'], $groupByEnum);
+        // Never a Template field label / English synonym instead of the
+        // real column name.
+        $this->assertNotContains('category', $groupByEnum);
+        $this->assertNotContains('カテゴリ', $groupByEnum);
+    }
+
+    /**
+     * "group_by" has never been nullable — CalculateDerivedMetricsAction
+     * rejects "null"/missing group_by as "missing_group_by" (Phase 2;
+     * see docs/product/DERIVED_METRICS.md §10 "group_by必須(nullを
+     * 許可しない)"), and the Structured Output schema's "group_by" has
+     * always been a plain {"type": "string"} — never
+     * {"type": ["string", "null"]}. The dynamic "enum" this schema now
+     * adds is a *further* restriction on top of an already-non-nullable
+     * string, never a relaxation: adding an enum of exact allowed string
+     * values cannot itself introduce null as a valid value, and this test
+     * locks that invariant in explicitly (a regression here would mean a
+     * future edit accidentally widened "type" to allow null while adding
+     * the enum).
+     */
+    public function test_plan_metrics_group_by_schema_never_allows_null_when_available_dimensions_is_non_empty(): void
+    {
+        $payload = null;
+        $planResponse = json_encode(['derived_metrics' => []], JSON_THROW_ON_ERROR);
+
+        Http::fake(function (Request $request) use (&$payload, $planResponse) {
+            $payload = json_decode($request->body(), true, flags: JSON_THROW_ON_ERROR);
+
+            return Http::response($this->completedResponse($planResponse));
+        });
+
+        (new AiAnalysisClient)->planMetrics($this->planningContext());
+
+        $groupBySchema = $payload['text']['format']['schema']['properties']['derived_metrics']['items']['properties']['group_by'];
+
+        $this->assertSame('string', $groupBySchema['type']);
+        $this->assertNotContains(null, $groupBySchema['enum']);
+    }
+
+    /**
+     * When available_dimensions is empty, derivedMetricsPlanSchema()
+     * defensively omits "enum" entirely (an empty enum would make the
+     * field impossible to satisfy) rather than falling back to allowing
+     * null. "group_by" remains a required, non-nullable string exactly as
+     * it always was before this schema had an enum at all. In the real
+     * pipeline this case never actually occurs — PlanDerivedMetricsAction
+     * never calls planMetrics() at all when aggregated_metrics has no
+     * dimensions — but planMetrics() is a public method, so this locks in
+     * safe behavior regardless of caller.
+     */
+    public function test_plan_metrics_group_by_schema_has_no_enum_but_still_disallows_null_when_available_dimensions_is_empty(): void
+    {
+        $payload = null;
+        $planResponse = json_encode(['derived_metrics' => []], JSON_THROW_ON_ERROR);
+
+        Http::fake(function (Request $request) use (&$payload, $planResponse) {
+            $payload = json_decode($request->body(), true, flags: JSON_THROW_ON_ERROR);
+
+            return Http::response($this->completedResponse($planResponse));
+        });
+
+        $context = $this->planningContext();
+        $context['available_dimensions'] = [];
+
+        (new AiAnalysisClient)->planMetrics($context);
+
+        $groupBySchema = $payload['text']['format']['schema']['properties']['derived_metrics']['items']['properties']['group_by'];
+
+        $this->assertSame('string', $groupBySchema['type']);
+        $this->assertArrayNotHasKey('enum', $groupBySchema);
     }
 
     public function test_plan_metrics_returns_a_non_empty_derived_metrics_plan_when_the_ai_proposes_one(): void

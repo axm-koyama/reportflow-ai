@@ -46,6 +46,38 @@ class ResolveAnalysisTemplateActionTest extends TestCase
             ->andReturn(json_encode(['mappings' => $mappings], JSON_THROW_ON_ERROR));
     }
 
+    /**
+     * A Data Profile shaped like DataProfilingAction's real output for a
+     * Japanese sales CSV with columns: 日付(date), 商品名(string),
+     * 分類(string), 店舗名(string), 地域(string), 販売数量(integer),
+     * 注文件数(integer), 売上金額(integer) — the Phase 3-B E2E "Case C" shape
+     * (docs/product/ANALYSIS_TEMPLATE_MODULE.md §14).
+     *
+     * @return array<string, mixed>
+     */
+    private function salesDataProfile(): array
+    {
+        return [
+            'file' => ['name' => 'sales.csv', 'row_count' => 4, 'column_count' => 8],
+            'columns' => [
+                ['name' => '日付', 'inferred_type' => 'date', 'non_null_count' => 4, 'null_count' => 0, 'unique_count' => 4],
+                ['name' => '商品名', 'inferred_type' => 'string', 'non_null_count' => 4, 'null_count' => 0, 'unique_count' => 3],
+                ['name' => '分類', 'inferred_type' => 'string', 'non_null_count' => 4, 'null_count' => 0, 'unique_count' => 2],
+                ['name' => '店舗名', 'inferred_type' => 'string', 'non_null_count' => 4, 'null_count' => 0, 'unique_count' => 2],
+                ['name' => '地域', 'inferred_type' => 'string', 'non_null_count' => 4, 'null_count' => 0, 'unique_count' => 2],
+                ['name' => '販売数量', 'inferred_type' => 'integer', 'non_null_count' => 4, 'null_count' => 0, 'unique_count' => 4],
+                ['name' => '注文件数', 'inferred_type' => 'integer', 'non_null_count' => 4, 'null_count' => 0, 'unique_count' => 4],
+                ['name' => '売上金額', 'inferred_type' => 'integer', 'non_null_count' => 4, 'null_count' => 0, 'unique_count' => 4],
+            ],
+            'numeric_statistics' => [],
+            'categorical_summaries' => [],
+            'sample_rows' => [
+                ['日付' => '2026-01-01', '商品名' => '商品A', '分類' => '食品', '店舗名' => '渋谷店', '地域' => '関東', '販売数量' => '10', '注文件数' => '8', '売上金額' => '50000'],
+                ['日付' => '2026-01-02', '商品名' => '商品B', '分類' => '雑貨', '店舗名' => '大阪店', '地域' => '関西', '販売数量' => '5', '注文件数' => '4', '売上金額' => '30000'],
+            ],
+        ];
+    }
+
     public function test_it_throws_for_an_unknown_template_key(): void
     {
         $this->expectException(InvalidArgumentException::class);
@@ -300,5 +332,182 @@ class ResolveAnalysisTemplateActionTest extends TestCase
 
         // "date" (temporal) has no matching column in this CSV at all.
         $this->assertSame([], $capturedContext['column_candidates']['date']);
+    }
+
+    // --- sales_analysis (Phase 3-B) ------------------------------------
+
+    /**
+     * "revenue" is the only required field: an AnalysisJob succeeds even
+     * when every other semantic field (quantity/orders/product/category/
+     * store/region/customer/date) is never proposed at all.
+     */
+    public function test_sales_analysis_revenue_only_required_succeeds_with_everything_else_unmapped(): void
+    {
+        $this->mockMapColumnsToReturn([
+            ['field' => 'revenue', 'column' => '売上金額', 'confidence' => 'high'],
+        ]);
+
+        $result = app(ResolveAnalysisTemplateAction::class)->execute('sales_analysis', '', $this->salesDataProfile());
+
+        $this->assertSame('mapped', $result['column_mapping_for_storage']['revenue']['status']);
+
+        foreach (['quantity', 'orders', 'product', 'category', 'store', 'region', 'customer', 'date'] as $optionalField) {
+            $this->assertSame('unmapped', $result['column_mapping_for_storage'][$optionalField]['status']);
+        }
+    }
+
+    /**
+     * Japanese column names are mapped by meaning across all 9 semantic
+     * fields at once, including the 4 same-type ("string") dimension
+     * fields (product/category/store/region — see
+     * docs/product/ANALYSIS_TEMPLATE_MODULE.md §14 "5 dimension field"
+     * risk note) sharing the exact same column_candidates pool. This
+     * exercises ValidateColumnMappingAction's deterministic acceptance of
+     * an AI proposal that already disambiguated them correctly; it does
+     * not itself prove the AI can reliably do so (see the real-API E2E).
+     */
+    public function test_sales_analysis_maps_japanese_columns_by_meaning(): void
+    {
+        $this->mockMapColumnsToReturn([
+            ['field' => 'revenue', 'column' => '売上金額', 'confidence' => 'high'],
+            ['field' => 'quantity', 'column' => '販売数量', 'confidence' => 'high'],
+            ['field' => 'orders', 'column' => '注文件数', 'confidence' => 'high'],
+            ['field' => 'product', 'column' => '商品名', 'confidence' => 'high'],
+            ['field' => 'category', 'column' => '分類', 'confidence' => 'high'],
+            ['field' => 'store', 'column' => '店舗名', 'confidence' => 'high'],
+            ['field' => 'region', 'column' => '地域', 'confidence' => 'high'],
+            ['field' => 'date', 'column' => '日付', 'confidence' => 'high'],
+        ]);
+
+        $result = app(ResolveAnalysisTemplateAction::class)->execute('sales_analysis', '', $this->salesDataProfile());
+
+        $this->assertSame([
+            'revenue' => '売上金額',
+            'quantity' => '販売数量',
+            'orders' => '注文件数',
+            'product' => '商品名',
+            'category' => '分類',
+            'store' => '店舗名',
+            'region' => '地域',
+            'date' => '日付',
+        ], $result['column_mapping']);
+    }
+
+    /**
+     * average_unit_price (revenue/quantity) survives filtering when
+     * "quantity" is mapped.
+     */
+    public function test_sales_analysis_average_unit_price_survives_when_quantity_is_mapped(): void
+    {
+        $this->mockMapColumnsToReturn([
+            ['field' => 'revenue', 'column' => '売上金額', 'confidence' => 'high'],
+            ['field' => 'quantity', 'column' => '販売数量', 'confidence' => 'high'],
+        ]);
+
+        $result = app(ResolveAnalysisTemplateAction::class)->execute('sales_analysis', '', $this->salesDataProfile());
+
+        $names = array_column($result['analysis_template']['recommended_derived_metrics'], 'name');
+
+        $this->assertContains('average_unit_price', $names);
+    }
+
+    /**
+     * average_order_value (revenue/orders) survives filtering when
+     * "orders" is mapped.
+     */
+    public function test_sales_analysis_average_order_value_survives_when_orders_is_mapped(): void
+    {
+        $this->mockMapColumnsToReturn([
+            ['field' => 'revenue', 'column' => '売上金額', 'confidence' => 'high'],
+            ['field' => 'orders', 'column' => '注文件数', 'confidence' => 'high'],
+        ]);
+
+        $result = app(ResolveAnalysisTemplateAction::class)->execute('sales_analysis', '', $this->salesDataProfile());
+
+        $names = array_column($result['analysis_template']['recommended_derived_metrics'], 'name');
+
+        $this->assertContains('average_order_value', $names);
+    }
+
+    /**
+     * "quantity" unmapped -> average_unit_price (revenue/quantity) is
+     * filtered out, while average_order_value (revenue/orders, both
+     * mapped) is unaffected.
+     */
+    public function test_sales_analysis_average_unit_price_is_filtered_out_when_quantity_is_unmapped(): void
+    {
+        $this->mockMapColumnsToReturn([
+            ['field' => 'revenue', 'column' => '売上金額', 'confidence' => 'high'],
+            ['field' => 'orders', 'column' => '注文件数', 'confidence' => 'high'],
+            // "quantity" is never proposed -> stays unmapped.
+        ]);
+
+        $result = app(ResolveAnalysisTemplateAction::class)->execute('sales_analysis', '', $this->salesDataProfile());
+
+        $names = array_column($result['analysis_template']['recommended_derived_metrics'], 'name');
+
+        $this->assertNotContains('average_unit_price', $names);
+        $this->assertContains('average_order_value', $names);
+    }
+
+    /**
+     * "orders" unmapped -> average_order_value (revenue/orders) is
+     * filtered out, while average_unit_price (revenue/quantity, both
+     * mapped) is unaffected.
+     */
+    public function test_sales_analysis_average_order_value_is_filtered_out_when_orders_is_unmapped(): void
+    {
+        $this->mockMapColumnsToReturn([
+            ['field' => 'revenue', 'column' => '売上金額', 'confidence' => 'high'],
+            ['field' => 'quantity', 'column' => '販売数量', 'confidence' => 'high'],
+            // "orders" is never proposed -> stays unmapped.
+        ]);
+
+        $result = app(ResolveAnalysisTemplateAction::class)->execute('sales_analysis', '', $this->salesDataProfile());
+
+        $names = array_column($result['analysis_template']['recommended_derived_metrics'], 'name');
+
+        $this->assertContains('average_unit_price', $names);
+        $this->assertNotContains('average_order_value', $names);
+    }
+
+    /**
+     * Both "quantity" and "orders" unmapped -> both recommended hints are
+     * filtered out, leaving an empty list — this does not fail the
+     * AnalysisJob (see ExecuteAnalysisJobActionTest for the full-pipeline
+     * confirmation that Planning AI is still called normally and the Job
+     * still completes).
+     */
+    public function test_sales_analysis_recommended_derived_metrics_is_empty_when_quantity_and_orders_are_both_unmapped(): void
+    {
+        $this->mockMapColumnsToReturn([
+            ['field' => 'revenue', 'column' => '売上金額', 'confidence' => 'high'],
+        ]);
+
+        $result = app(ResolveAnalysisTemplateAction::class)->execute('sales_analysis', '', $this->salesDataProfile());
+
+        $this->assertSame([], $result['analysis_template']['recommended_derived_metrics']);
+    }
+
+    /**
+     * "date" is a normal Column Mapping field: it resolves to "mapped"
+     * with its real column exactly like any other field. Whether it is
+     * usable as an aggregation/group_by dimension is a separate concern
+     * this action has no opinion on (see MetricAggregationAction /
+     * ExecuteAnalysisJobActionTest for the "date never becomes an
+     * aggregated_metrics dimension" confirmation — Phase 3-B §15).
+     */
+    public function test_sales_analysis_date_is_mapped_as_a_normal_column_mapping_field(): void
+    {
+        $this->mockMapColumnsToReturn([
+            ['field' => 'revenue', 'column' => '売上金額', 'confidence' => 'high'],
+            ['field' => 'date', 'column' => '日付', 'confidence' => 'high'],
+        ]);
+
+        $result = app(ResolveAnalysisTemplateAction::class)->execute('sales_analysis', '', $this->salesDataProfile());
+
+        $this->assertSame('mapped', $result['column_mapping_for_storage']['date']['status']);
+        $this->assertSame('日付', $result['column_mapping_for_storage']['date']['column']);
+        $this->assertSame('日付', $result['column_mapping']['date']);
     }
 }

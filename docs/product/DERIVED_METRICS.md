@@ -231,6 +231,19 @@ API応答の時点である程度絞り込まれるが、これを**唯一の防
 Structured Outputは「そのデータセットに実在する列名か」までは保証できないため、
 Laravel側での意味検証は常に独立して行う。
 
+> **Phase 3-B で更新**: `group_by`についても、`AiAnalysisClient::planMetrics()`
+> がリクエストごとに`available_dimensions`の実際の値をそのまま`enum`制約
+> として組み込むようになった(`derivedMetricsPlanSchema()`)。これは
+> Sales Template実装時、Planning AIが実列名「分類」の代わりにTemplateの
+> field label「カテゴリ」を`group_by`として提案し、
+> `CalculateDerivedMetricsAction`に`unknown_group_by`としてrejectされる
+> 事象が観測されたための追加防御である。Laravel側のvalidation
+> (`unknown_group_by`)は変更していない — この`enum`制約はAPI応答の時点で
+> 誤ったgroup_byを未然に防ぐことでDerived Metricsの欠落を減らすための
+> UX改善であり、Laravel側検証を代替するものではない。`metric`/`aggregation`
+> は同様の事象が観測されていないため、意図的に`enum`制約を追加していない
+> (`available_measures`への制約はスキーマの複雑化に見合わないと判断)。
+
 ### name一意性(重複検出)
 
 `name`は、最終Analysis呼び出しでAIが`derived_metrics`内の個々の派生指標を

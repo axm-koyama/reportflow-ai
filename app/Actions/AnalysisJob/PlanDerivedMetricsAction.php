@@ -53,6 +53,16 @@ use JsonException;
  * AiAnalysisClient::analyze() (returns a raw string) and
  * NormalizeAnalysisResultAction (validates it).
  *
+ * "group_by" gets two independent layers of guidance/enforcement against
+ * one observed failure mode (the AI substituting a Template field's
+ * label, e.g. "カテゴリ", for the real dimension column name, e.g.
+ * "分類"): System Instruction Rule 4a below asks for an exact,
+ * character-for-character copy of an available_dimensions value, and
+ * AiAnalysisClient::planMetrics() additionally constrains "group_by" to
+ * an API-enforced enum built from this exact request's
+ * available_dimensions. Neither replaces CalculateDerivedMetricsAction's
+ * own "unknown_group_by" validation, which remains the final authority.
+ *
  * Out of scope: computing any derived metric value, reading aggregated_metrics'
  * numeric values, resolving column_mapping (ResolveAnalysisTemplateAction),
  * persistence, AnalysisJob status updates.
@@ -152,6 +162,18 @@ class PlanDerivedMetricsAction
             "group_by" must come only from available_dimensions. Never invent a
             referenced metric, aggregation, or group_by value that is not present in
             its corresponding available_* list.
+
+            4a. "group_by" must be an exact, character-for-character copy of one of
+            the strings in available_dimensions — never a translation, a paraphrase,
+            a synonym, or the analysis_template field label/name for that dimension.
+            available_dimensions always contains the data's real column names, in
+            whatever language or script they actually use; copy that exact string
+            regardless of what language it is in. For example, if
+            available_dimensions contains "分類", use "group_by": "分類" — never
+            "group_by": "category" or "group_by": "カテゴリ", even if a
+            semantically equivalent English or Japanese word feels more natural or
+            matches an analysis_template field's label. The same applies to every
+            other dimension value regardless of its script or language.
 
             5. Give each derived metric a "name" that is a unique, meaningful
             identifier describing what it represents — not just the name of one of
