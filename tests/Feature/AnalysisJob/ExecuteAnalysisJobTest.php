@@ -9,7 +9,9 @@ use App\Enums\AnalysisJobStatus;
 use App\Jobs\ExecuteAnalysisJob;
 use App\Models\AnalysisJob;
 use App\Models\AnalysisJobDetail;
+use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\Log;
 use Mockery;
 use RuntimeException;
@@ -18,6 +20,42 @@ use Tests\TestCase;
 class ExecuteAnalysisJobTest extends TestCase
 {
     use RefreshDatabase;
+
+    /**
+     * Phase 3-C (AJ): ExecuteAnalysisJob implements ShouldBeUnique, keyed
+     * by analysisJobId — a secondary defense (see the class docblock)
+     * against a duplicate dispatch for the same AnalysisJob from either
+     * of its two dispatch points (CreateAnalysisJobAction and the Mapping
+     * confirmation resume). The primary defense
+     * (AnalysisJobController::updateMapping()'s lockForUpdate() + status
+     * guard, and ExecuteAnalysisJobAction's own no-op guard) holds
+     * independently of this.
+     */
+    public function test_implements_should_be_unique_keyed_by_analysis_job_id(): void
+    {
+        $job = new ExecuteAnalysisJob(42);
+
+        $this->assertInstanceOf(ShouldBeUnique::class, $job);
+        $this->assertSame('42', $job->uniqueId());
+    }
+
+    /**
+     * Dispatching the same AnalysisJob ID twice while the first dispatch
+     * is still unique-locked results in only one job actually being
+     * pushed onto the queue — this is Laravel's ShouldBeUnique contract,
+     * exercised end-to-end against this app's actual cache configuration
+     * (the "database" cache driver's cache_locks table) rather than
+     * assumed.
+     */
+    public function test_duplicate_dispatch_for_the_same_analysis_job_id_is_only_queued_once(): void
+    {
+        Bus::fake([ExecuteAnalysisJob::class]);
+
+        ExecuteAnalysisJob::dispatch(42);
+        ExecuteAnalysisJob::dispatch(42);
+
+        Bus::assertDispatchedTimes(ExecuteAnalysisJob::class, 1);
+    }
 
     /**
      * Queue configuration: tries = 3

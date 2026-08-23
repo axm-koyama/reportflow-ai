@@ -336,4 +336,32 @@ class UpdateAnalysisJobActionTest extends TestCase
 
         (new UpdateAnalysisJobAction)->recordColumnMapping($analysisJob, []);
     }
+
+    /**
+     * Phase 3-C Medium 3: recordColumnMapping() is write-once. Calling it
+     * a second time (e.g. a caller bug re-running Mapping AI for an
+     * AnalysisJob that already has column_mapping) must not silently
+     * replace the first, already-persisted AI mapping — the audit record
+     * of "what the AI first proposed" must never change.
+     */
+    public function test_record_column_mapping_is_write_once_and_ignores_a_second_call(): void
+    {
+        $analysisJob = AnalysisJob::factory()->create(['status' => AnalysisJobStatus::Processing]);
+        $detail = AnalysisJobDetail::factory()->for($analysisJob)->create();
+
+        $firstMapping = [
+            'channel' => ['column' => '媒体', 'confidence' => 'high', 'status' => 'mapped'],
+        ];
+        $secondMapping = [
+            'channel' => ['column' => '別の列', 'confidence' => 'high', 'status' => 'mapped'],
+        ];
+
+        $action = new UpdateAnalysisJobAction;
+        $action->recordColumnMapping($analysisJob, $firstMapping);
+        $action->recordColumnMapping($analysisJob, $secondMapping);
+
+        $detail->refresh();
+
+        $this->assertSame($firstMapping, $detail->column_mapping);
+    }
 }

@@ -222,6 +222,13 @@ ignored    有効な候補はあったが不採用(low confidenceまたは重複
 全fieldを含む詳細な監査用レコード、AI Context用は`mapped`のfieldのみを
 含む単純な`{field: column}`辞書へ`ResolveAnalysisTemplateAction`が変換する。
 
+> **Phase 3-C で更新**: `column_mapping`は「AIが提案しLaravelが検証した
+> 記録」という意味に純化された — Planning/Calculation/Analyzeが実際に
+> 使う最終Factは、`manual_column_mapping`(Userの明示的override)と
+> 合成された`effective_column_mapping`である。`column_mapping`自体は
+> Manual Override後も**書き換えられない**。詳細は
+> docs/product/MAPPING_CONTROL.md §4を参照。
+
 ---
 
 ## 8. Free Analysis(自由分析)との互換性
@@ -251,7 +258,15 @@ ignored    有効な候補はあったが不採用(low confidenceまたは重複
 自由分析かに関わらず、渡された`CalculationDefinition`が
 `aggregated_metrics`(実列名ベース)に対して妥当かを検証するだけである。
 
-### 9.1 Recommended Derived Metrics Filtering(`ResolveAnalysisTemplateAction`)
+### 9.1 Recommended Derived Metrics Filtering(`FilterRecommendedDerivedMetricsAction`)
+
+> **Phase 3-C で更新**: このfilteringロジック自体は
+> `ResolveAnalysisTemplateAction`から`FilterRecommendedDerivedMetricsAction`
+> (新規、AI呼び出し・DB I/Oなしの純粋なAction)へ抽出された。
+> `ResolveAnalysisTemplateAction`は引き続きこれを内部で使う(自動確定
+> パス用)。手動Mapping確認パスでは、`ExecuteAnalysisJobAction`が
+> confirmed `effective_column_mapping`に対して**同じAction**を再適用
+> する。詳細はdocs/product/MAPPING_CONTROL.md §7を参照。
 
 E2Eで、`click_through_rate = clicks / impressions`という
 recommendationに対し、`impressions`がunmappedだったにもかかわらず
@@ -535,3 +550,17 @@ Hallucination防止設計と一貫した挙動である。
 
 Phase 3-Bでは、これらの必要性が具体的な要件として確認されるまで
 実装しない(過剰な一般化を避けるという既存方針を維持)。
+
+---
+
+## 16. Phase 3-C: Mapping Control & Reliability
+
+AI Column Mappingの結果確認・Manual Override・Effective Mapping確定・
+`AwaitingMappingConfirmation`という中間status・Queue再開設計は、この
+Frameworkの上に積み上げられた別モジュールとして
+docs/product/MAPPING_CONTROL.mdに独立してまとめている。
+
+`ResolveAnalysisTemplateAction`は「required不足でthrowする責務」を
+失った(常に成功を返し、`missing_required_fields`/
+`missing_required_field_groups`を報告するのみ)以外、Mapping AI呼び出し
+・`ValidateColumnMappingAction`検証の中身は無変更である。

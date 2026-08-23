@@ -819,12 +819,14 @@ class ExecuteAnalysisJobActionTest extends TestCase
     }
 
     /**
-     * Required field ("channel") unresolved -> exception propagates (same
-     * failure lifecycle as any other pipeline step), AnalysisJob stays
-     * Processing (ExecuteAnalysisJob's failed() callback owns marking it
-     * Failed once retries are exhausted).
+     * Phase 3-C: required field ("channel") unresolved no longer throws
+     * or fails the AnalysisJob — it transitions Processing ->
+     * AwaitingMappingConfirmation and the method returns normally (the
+     * Queue job ends "successfully" from Laravel Queue's point of view;
+     * no retry is triggered). The AI's partial mapping is still recorded,
+     * and Planning/Analyze are never reached.
      */
-    public function test_required_field_missing_propagates_and_leaves_the_analysis_job_processing(): void
+    public function test_required_field_missing_transitions_to_awaiting_mapping_confirmation(): void
     {
         [, $analysisJob, $detail] = $this->createPendingAdPerformanceAnalysisJob();
 
@@ -839,26 +841,25 @@ class ExecuteAnalysisJobActionTest extends TestCase
             ->shouldNotReceive('planMetrics')
             ->shouldNotReceive('analyze');
 
-        try {
-            app(ExecuteAnalysisJobAction::class)->execute($analysisJob->analysis_job_id);
-
-            $this->fail('Expected RuntimeException.');
-        } catch (RuntimeException $e) {
-            $this->assertStringContainsString('広告パフォーマンス分析', $e->getMessage());
-        }
+        app(ExecuteAnalysisJobAction::class)->execute($analysisJob->analysis_job_id);
 
         $analysisJob->refresh();
         $detail->refresh();
 
-        $this->assertSame(AnalysisJobStatus::Processing, $analysisJob->status);
+        $this->assertSame(AnalysisJobStatus::AwaitingMappingConfirmation, $analysisJob->status);
         $this->assertNull($detail->completed_at);
+        $this->assertNull($detail->effective_column_mapping);
+        $this->assertSame('unmapped', $detail->column_mapping['channel']['status']);
+        $this->assertSame('mapped', $detail->column_mapping['spend']['status']);
     }
 
     /**
-     * A required field ("channel") that becomes ambiguous also propagates
-     * an exception rather than silently guessing.
+     * A required field ("channel") that becomes ambiguous also leads to
+     * AwaitingMappingConfirmation, not a failure — "ambiguous" is already
+     * covered by ValidateColumnMappingAction's existing
+     * missing_required_fields computation.
      */
-    public function test_ambiguous_required_field_propagates_and_leaves_the_analysis_job_processing(): void
+    public function test_ambiguous_required_field_transitions_to_awaiting_mapping_confirmation(): void
     {
         [, $analysisJob, $detail] = $this->createPendingAdPerformanceAnalysisJob();
 
@@ -876,14 +877,13 @@ class ExecuteAnalysisJobActionTest extends TestCase
             ->shouldNotReceive('planMetrics')
             ->shouldNotReceive('analyze');
 
-        $this->expectException(RuntimeException::class);
-
         app(ExecuteAnalysisJobAction::class)->execute($analysisJob->analysis_job_id);
 
         $analysisJob->refresh();
         $detail->refresh();
 
-        $this->assertSame(AnalysisJobStatus::Processing, $analysisJob->status);
+        $this->assertSame(AnalysisJobStatus::AwaitingMappingConfirmation, $analysisJob->status);
+        $this->assertSame('ambiguous', $detail->column_mapping['channel']['status']);
     }
 
     /**
@@ -914,5 +914,433 @@ class ExecuteAnalysisJobActionTest extends TestCase
         $this->assertSame(AnalysisJobStatus::Processing, $analysisJob->status);
         $this->assertNull($detail->completed_at);
         $this->assertNull($detail->column_mapping);
+    }
+
+    // --- Phase 3-C: Mapping confirmation resume ---------------------------
+
+    /**
+     * Full recovery cycle for ad_performance (AA): required "channel"
+     * unmapped -> AwaitingMappingConfirmation -> (simulating what
+     * AnalysisJobController::updateMapping() does) manual override +
+     * ResolveEffectiveColumnMappingAction + resumeAfterMappingConfirmation
+     * -> re-dispatch -> Completed. Mapping AI is called exactly once for
+     * the entire lifetime of this AnalysisJob (never again on resume),
+     * so the Template AI call total stays at 3 (Mapping + Planning +
+     * Analyze) exactly like the auto-confident path — Phase 3-C's
+     * Mapping confirmation flow adds zero AI calls (AD).
+     */
+    public function test_manual_confirmation_resumes_ad_performance_to_completed_without_calling_mapping_ai_again(): void
+    {
+        [, $analysisJob, $detail] = $this->createPendingAdPerformanceAnalysisJob();
+
+        $mapResponse = json_encode(['mappings' => [
+            ['field' => 'spend', 'column' => 'spend', 'confidence' => 'high'],
+            ['field' => 'revenue', 'column' => 'revenue', 'confidence' => 'high'],
+            // "channel" (required) is never proposed.
+        ]], JSON_THROW_ON_ERROR);
+
+        $this->mock(AiAnalysisClient::class)
+            ->shouldReceive('mapColumns')
+            ->once() // <- never called again on resume
+            ->andReturn($mapResponse)
+            ->shouldReceive('planMetrics')
+            ->once()
+            ->andReturn($this->emptyPlanResponse())
+            ->shouldReceive('analyze')
+            ->once()
+            ->andReturn(json_encode($this->structuredResult(), JSON_THROW_ON_ERROR));
+
+        app(ExecuteAnalysisJobAction::class)->execute($analysisJob->analysis_job_id);
+
+        $analysisJob->refresh();
+        $detail->refresh();
+        $this->assertSame(AnalysisJobStatus::AwaitingMappingConfirmation, $analysisJob->status);
+
+        // What AnalysisJobController::updateMapping() does, driven directly:
+        // manually map "channel", re-validate the Full Mapping Proposal,
+        // and resume.
+        $template = config('analysis_templates.ad_performance');
+        $dataProfile = app(DataProfilingAction::class)->execute($analysisJob->dataFile);
+        $columnCandidates = app(\App\Actions\AnalysisJob\BuildAnalysisTemplateColumnCandidatesAction::class)
+            ->execute($template['fields'], $dataProfile);
+
+        $effective = app(\App\Actions\AnalysisJob\ResolveEffectiveColumnMappingAction::class)->execute(
+            $template['fields'],
+            $columnCandidates,
+            $detail->column_mapping,
+            ['channel' => ['column' => 'channel']],
+            $template['required_fields'],
+            $template['required_field_groups'],
+        );
+
+        $this->assertSame([], $effective['missing_required_fields']);
+
+        app(\App\Actions\AnalysisJob\UpdateAnalysisJobAction::class)->resumeAfterMappingConfirmation(
+            $analysisJob,
+            ['channel' => ['column' => 'channel']],
+            $effective['effective_mapping'],
+        );
+
+        $analysisJob->refresh();
+        $this->assertSame(AnalysisJobStatus::Pending, $analysisJob->status);
+
+        app(ExecuteAnalysisJobAction::class)->execute($analysisJob->analysis_job_id);
+
+        $analysisJob->refresh();
+        $detail->refresh();
+
+        $this->assertSame(AnalysisJobStatus::Completed, $analysisJob->status);
+        $this->assertSame('manual', $detail->effective_column_mapping['channel']['source']);
+        $this->assertSame('ai', $detail->effective_column_mapping['spend']['source']);
+    }
+
+    /**
+     * Full recovery cycle for sales_analysis (AB), also exercising:
+     *
+     * - V: manually adding "orders" revives the average_order_value hint
+     * - W: manually unsetting "quantity" (which the AI *did* map) removes
+     *   the average_unit_price hint
+     * - X/Y/Z: Planning AND the Final Analysis Context both receive the
+     *   confirmed Effective Mapping — "quantity" (present in the AI's own
+     *   column_mapping, but manually unset) must be absent from both,
+     *   proving neither one fell back to the stale AI mapping.
+     */
+    public function test_manual_confirmation_revives_and_removes_derived_metric_hints_via_effective_mapping(): void
+    {
+        [, $analysisJob, $detail] = $this->createPendingSalesAnalysisJob(
+            "date,product,category,quantity,orders,revenue\n"
+            ."2026-01-01,ProductA,Food,10,8,50000\n"
+            ."2026-01-02,ProductB,Goods,5,4,30000\n",
+        );
+
+        $mapResponse = json_encode(['mappings' => [
+            ['field' => 'quantity', 'column' => 'quantity', 'confidence' => 'high'],
+            ['field' => 'product', 'column' => 'product', 'confidence' => 'high'],
+            ['field' => 'category', 'column' => 'category', 'confidence' => 'high'],
+            // "revenue" (the only required field) and "orders" are never proposed.
+        ]], JSON_THROW_ON_ERROR);
+
+        $capturedPlanningContext = null;
+        $capturedContext = null;
+
+        $this->mock(AiAnalysisClient::class)
+            ->shouldReceive('mapColumns')
+            ->once() // <- never called again on resume
+            ->andReturn($mapResponse)
+            ->shouldReceive('planMetrics')
+            ->once()
+            ->withArgs(function (array $context) use (&$capturedPlanningContext): bool {
+                $capturedPlanningContext = $context;
+
+                return true;
+            })
+            ->andReturn($this->emptyPlanResponse())
+            ->shouldReceive('analyze')
+            ->once()
+            ->withArgs(function (array $context) use (&$capturedContext): bool {
+                $capturedContext = $context;
+
+                return true;
+            })
+            ->andReturn(json_encode($this->structuredResult(), JSON_THROW_ON_ERROR));
+
+        app(ExecuteAnalysisJobAction::class)->execute($analysisJob->analysis_job_id);
+
+        $analysisJob->refresh();
+        $detail->refresh();
+        $this->assertSame(AnalysisJobStatus::AwaitingMappingConfirmation, $analysisJob->status);
+        $this->assertSame('mapped', $detail->column_mapping['quantity']['status']); // AI did map it
+
+        // Manual override: fix "revenue" (required), add "orders" (V),
+        // and explicitly unset "quantity" (W) even though the AI mapped it.
+        $manualOverrides = [
+            'revenue' => ['column' => 'revenue'],
+            'orders' => ['column' => 'orders'],
+            'quantity' => ['column' => null],
+        ];
+
+        $template = config('analysis_templates.sales_analysis');
+        $dataProfile = app(DataProfilingAction::class)->execute($analysisJob->dataFile);
+        $columnCandidates = app(\App\Actions\AnalysisJob\BuildAnalysisTemplateColumnCandidatesAction::class)
+            ->execute($template['fields'], $dataProfile);
+
+        $effective = app(\App\Actions\AnalysisJob\ResolveEffectiveColumnMappingAction::class)->execute(
+            $template['fields'],
+            $columnCandidates,
+            $detail->column_mapping,
+            $manualOverrides,
+            $template['required_fields'],
+            $template['required_field_groups'],
+        );
+
+        $this->assertSame([], $effective['missing_required_fields']);
+        $this->assertSame('unmapped', $effective['effective_mapping']['quantity']['status']);
+        $this->assertSame('mapped', $effective['effective_mapping']['orders']['status']);
+
+        app(\App\Actions\AnalysisJob\UpdateAnalysisJobAction::class)->resumeAfterMappingConfirmation(
+            $analysisJob,
+            $manualOverrides,
+            $effective['effective_mapping'],
+        );
+
+        app(ExecuteAnalysisJobAction::class)->execute($analysisJob->analysis_job_id);
+
+        $analysisJob->refresh();
+        $this->assertSame(AnalysisJobStatus::Completed, $analysisJob->status);
+
+        // V: average_order_value (revenue/orders) revived...
+        $recommendedNames = array_column(
+            $capturedPlanningContext['analysis_template']['recommended_derived_metrics'],
+            'name',
+        );
+        $this->assertContains('average_order_value', $recommendedNames);
+        // ...W: average_unit_price (revenue/quantity) removed, because
+        // "quantity" was manually unset even though the AI had mapped it.
+        $this->assertNotContains('average_unit_price', $recommendedNames);
+
+        // X/Y/Z: neither Planning nor the Final Analysis Context ever see
+        // "quantity" — if either did, it would mean the stale AI mapping
+        // (which had "quantity" mapped) leaked through instead of the
+        // confirmed Effective Mapping.
+        $this->assertArrayNotHasKey('quantity', $capturedPlanningContext['column_mapping']);
+        $this->assertArrayNotHasKey('quantity', $capturedContext['column_mapping']);
+        $this->assertSame('orders', $capturedPlanningContext['column_mapping']['orders']);
+        $this->assertSame('orders', $capturedContext['column_mapping']['orders']);
+        $this->assertSame($capturedPlanningContext['column_mapping'], $capturedContext['column_mapping']);
+    }
+
+    /**
+     * T: a stale/duplicate Queue message for an already-Completed
+     * AnalysisJob is a safe no-op — it must never throw inside
+     * markProcessing() and manufacture a spurious failed_jobs entry for a
+     * Job that isn't actually failing.
+     */
+    public function test_a_stray_queue_message_for_an_already_completed_job_is_a_no_op(): void
+    {
+        [, $analysisJob, $detail] = $this->createPendingAnalysisJob('分析してください。');
+        $analysisJob->update(['status' => AnalysisJobStatus::Completed]);
+        $detail->update(['completed_at' => now(), 'result' => $this->structuredResult()]);
+
+        $this->mock(AiAnalysisClient::class)
+            ->shouldNotReceive('planMetrics')
+            ->shouldNotReceive('analyze');
+
+        app(ExecuteAnalysisJobAction::class)->execute($analysisJob->analysis_job_id);
+
+        $analysisJob->refresh();
+        $this->assertSame(AnalysisJobStatus::Completed, $analysisJob->status);
+    }
+
+    /**
+     * U: a stray Queue message for a Job currently
+     * AwaitingMappingConfirmation must never resume Planning on its own —
+     * only the confirm-triggered resume dispatch (Awaiting -> Pending)
+     * is allowed to do that.
+     */
+    public function test_a_stray_queue_message_for_an_awaiting_confirmation_job_does_not_start_planning(): void
+    {
+        [, $analysisJob, $detail] = $this->createPendingAdPerformanceAnalysisJob();
+        $analysisJob->update(['status' => AnalysisJobStatus::AwaitingMappingConfirmation]);
+        $detail->update(['column_mapping' => ['channel' => ['column' => null, 'confidence' => 'unmapped', 'status' => 'unmapped']]]);
+
+        $this->mock(AiAnalysisClient::class)
+            ->shouldNotReceive('mapColumns')
+            ->shouldNotReceive('planMetrics')
+            ->shouldNotReceive('analyze');
+
+        app(ExecuteAnalysisJobAction::class)->execute($analysisJob->analysis_job_id);
+
+        $analysisJob->refresh();
+        $this->assertSame(AnalysisJobStatus::AwaitingMappingConfirmation, $analysisJob->status);
+    }
+
+    /**
+     * A: the auto-confident path (no manual intervention at all) still
+     * persists effective_column_mapping, tagged source "ai" for every
+     * field — Template Jobs always end up with an effective_column_mapping,
+     * whether or not Mapping confirmation was ever needed.
+     */
+    public function test_auto_confident_path_persists_effective_mapping_tagged_source_ai(): void
+    {
+        [, $analysisJob, $detail] = $this->createPendingAdPerformanceAnalysisJob();
+
+        $mapResponse = json_encode(['mappings' => [
+            ['field' => 'channel', 'column' => 'channel', 'confidence' => 'high'],
+            ['field' => 'spend', 'column' => 'spend', 'confidence' => 'high'],
+        ]], JSON_THROW_ON_ERROR);
+
+        $this->mock(AiAnalysisClient::class)
+            ->shouldReceive('mapColumns')
+            ->once()
+            ->andReturn($mapResponse)
+            ->shouldReceive('planMetrics')
+            ->once()
+            ->andReturn($this->emptyPlanResponse())
+            ->shouldReceive('analyze')
+            ->once()
+            ->andReturn(json_encode($this->structuredResult(), JSON_THROW_ON_ERROR));
+
+        app(ExecuteAnalysisJobAction::class)->execute($analysisJob->analysis_job_id);
+
+        $detail->refresh();
+
+        $this->assertNotNull($detail->effective_column_mapping);
+        $this->assertSame('ai', $detail->effective_column_mapping['channel']['source']);
+        $this->assertSame('ai', $detail->effective_column_mapping['spend']['source']);
+        $this->assertSame('channel', $detail->effective_column_mapping['channel']['column']);
+    }
+
+    // --- Medium 3: column_mapping write-once / retry recovery -------------
+
+    /**
+     * Simulates the exact gap the review flagged: column_mapping was
+     * already recorded by a previous attempt (e.g. one that failed later,
+     * between recordColumnMapping() and the Awaiting/Effective-Mapping
+     * write), but effective_column_mapping never got written. A retry
+     * must reuse the stored column_mapping rather than calling Mapping AI
+     * again (1/2/7 from the review's test list: no extra mapColumns call,
+     * the original column_mapping survives unchanged).
+     */
+    public function test_retry_with_existing_column_mapping_and_no_effective_mapping_does_not_call_mapping_ai_again(): void
+    {
+        [, $analysisJob, $detail] = $this->createPendingAdPerformanceAnalysisJob();
+
+        $originalColumnMapping = [
+            'channel' => ['column' => 'channel', 'confidence' => 'high', 'status' => 'mapped'],
+            'campaign' => ['column' => null, 'confidence' => 'unmapped', 'status' => 'unmapped'],
+            'spend' => ['column' => 'spend', 'confidence' => 'high', 'status' => 'mapped'],
+            'revenue' => ['column' => 'revenue', 'confidence' => 'high', 'status' => 'mapped'],
+            'conversions' => ['column' => null, 'confidence' => 'unmapped', 'status' => 'unmapped'],
+            'clicks' => ['column' => null, 'confidence' => 'unmapped', 'status' => 'unmapped'],
+            'impressions' => ['column' => null, 'confidence' => 'unmapped', 'status' => 'unmapped'],
+            'date' => ['column' => null, 'confidence' => 'unmapped', 'status' => 'unmapped'],
+        ];
+
+        // Simulate "a previous attempt already got this far": Processing,
+        // column_mapping recorded, effective_column_mapping still null.
+        $analysisJob->update(['status' => AnalysisJobStatus::Processing]);
+        $detail->update(['column_mapping' => $originalColumnMapping, 'started_at' => now()]);
+
+        $this->mock(AiAnalysisClient::class)
+            ->shouldNotReceive('mapColumns') // <- the crux of the fix
+            ->shouldReceive('planMetrics')
+            ->once()
+            ->andReturn($this->emptyPlanResponse())
+            ->shouldReceive('analyze')
+            ->once()
+            ->andReturn(json_encode($this->structuredResult(), JSON_THROW_ON_ERROR));
+
+        app(ExecuteAnalysisJobAction::class)->execute($analysisJob->analysis_job_id);
+
+        $analysisJob->refresh();
+        $detail->refresh();
+
+        $this->assertSame(AnalysisJobStatus::Completed, $analysisJob->status);
+        // column_mapping is byte-for-byte the same value that was already
+        // stored — never overwritten by a second (would-be) AI response.
+        $this->assertSame($originalColumnMapping, $detail->column_mapping);
+        $this->assertSame('ai', $detail->effective_column_mapping['channel']['source']);
+        $this->assertSame('channel', $detail->effective_column_mapping['channel']['column']);
+    }
+
+    /**
+     * Same retry-recovery scenario, but the stored column_mapping does
+     * NOT satisfy required_fields (review test 4): must go to
+     * AwaitingMappingConfirmation, still without ever calling Mapping AI
+     * again.
+     */
+    public function test_retry_with_existing_column_mapping_still_missing_required_goes_to_awaiting_without_calling_mapping_ai(): void
+    {
+        [, $analysisJob, $detail] = $this->createPendingAdPerformanceAnalysisJob();
+
+        $originalColumnMapping = [
+            'channel' => ['column' => null, 'confidence' => 'unmapped', 'status' => 'unmapped'], // required, missing
+            'campaign' => ['column' => null, 'confidence' => 'unmapped', 'status' => 'unmapped'],
+            'spend' => ['column' => 'spend', 'confidence' => 'high', 'status' => 'mapped'],
+            'revenue' => ['column' => 'revenue', 'confidence' => 'high', 'status' => 'mapped'],
+            'conversions' => ['column' => null, 'confidence' => 'unmapped', 'status' => 'unmapped'],
+            'clicks' => ['column' => null, 'confidence' => 'unmapped', 'status' => 'unmapped'],
+            'impressions' => ['column' => null, 'confidence' => 'unmapped', 'status' => 'unmapped'],
+            'date' => ['column' => null, 'confidence' => 'unmapped', 'status' => 'unmapped'],
+        ];
+
+        $analysisJob->update(['status' => AnalysisJobStatus::Processing]);
+        $detail->update(['column_mapping' => $originalColumnMapping, 'started_at' => now()]);
+
+        $this->mock(AiAnalysisClient::class)
+            ->shouldNotReceive('mapColumns')
+            ->shouldNotReceive('planMetrics')
+            ->shouldNotReceive('analyze');
+
+        app(ExecuteAnalysisJobAction::class)->execute($analysisJob->analysis_job_id);
+
+        $analysisJob->refresh();
+        $detail->refresh();
+
+        $this->assertSame(AnalysisJobStatus::AwaitingMappingConfirmation, $analysisJob->status);
+        $this->assertSame($originalColumnMapping, $detail->column_mapping);
+        $this->assertNull($detail->effective_column_mapping);
+    }
+
+    /**
+     * Manual confirmation preserves the three-way separation end to end
+     * (review test 6): column_mapping stays exactly the AI's first value,
+     * manual_column_mapping holds only the user's diff, and
+     * effective_column_mapping is the merged final Fact.
+     */
+    public function test_manual_confirmation_leaves_column_mapping_untouched(): void
+    {
+        [, $analysisJob, $detail] = $this->createPendingAdPerformanceAnalysisJob();
+
+        $mapResponse = json_encode(['mappings' => [
+            ['field' => 'spend', 'column' => 'spend', 'confidence' => 'high'],
+            ['field' => 'revenue', 'column' => 'revenue', 'confidence' => 'high'],
+        ]], JSON_THROW_ON_ERROR);
+
+        $this->mock(AiAnalysisClient::class)
+            ->shouldReceive('mapColumns')
+            ->once()
+            ->andReturn($mapResponse)
+            ->shouldNotReceive('planMetrics')
+            ->shouldNotReceive('analyze');
+
+        app(ExecuteAnalysisJobAction::class)->execute($analysisJob->analysis_job_id);
+
+        $analysisJob->refresh();
+        $detail->refresh();
+        $this->assertSame(AnalysisJobStatus::AwaitingMappingConfirmation, $analysisJob->status);
+        $columnMappingAfterAi = $detail->column_mapping;
+
+        $template = config('analysis_templates.ad_performance');
+        $dataProfile = app(DataProfilingAction::class)->execute($analysisJob->dataFile);
+        $columnCandidates = app(\App\Actions\AnalysisJob\BuildAnalysisTemplateColumnCandidatesAction::class)
+            ->execute($template['fields'], $dataProfile);
+
+        $manualOverrides = ['channel' => ['column' => 'channel']];
+
+        $effective = app(\App\Actions\AnalysisJob\ResolveEffectiveColumnMappingAction::class)->execute(
+            $template['fields'],
+            $columnCandidates,
+            $detail->column_mapping,
+            $manualOverrides,
+            $template['required_fields'],
+            $template['required_field_groups'],
+        );
+
+        app(\App\Actions\AnalysisJob\UpdateAnalysisJobAction::class)->resumeAfterMappingConfirmation(
+            $analysisJob,
+            $manualOverrides,
+            $effective['effective_mapping'],
+        );
+
+        $detail->refresh();
+
+        // column_mapping: unchanged, still exactly the AI's first result.
+        $this->assertSame($columnMappingAfterAi, $detail->column_mapping);
+        // manual_column_mapping: only the user's diff.
+        $this->assertSame(['channel' => ['column' => 'channel']], $detail->manual_column_mapping);
+        // effective_column_mapping: the merged final Fact.
+        $this->assertSame('manual', $detail->effective_column_mapping['channel']['source']);
+        $this->assertSame('ai', $detail->effective_column_mapping['spend']['source']);
     }
 }

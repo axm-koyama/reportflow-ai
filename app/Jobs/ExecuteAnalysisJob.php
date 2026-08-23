@@ -8,6 +8,7 @@ use App\Actions\AnalysisJob\ExecuteAnalysisJobAction;
 use App\Actions\AnalysisJob\UpdateAnalysisJobAction;
 use App\Models\AnalysisJob;
 use Illuminate\Bus\Queueable;
+use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
@@ -23,10 +24,39 @@ use Throwable;
  * - a single execution attempt belongs to ExecuteAnalysisJobAction
  * - retry orchestration belongs to Laravel Queue (tries/backoff below)
  * - final (retry-exhausted) failure handling belongs to failed() below
+ *
+ * Phase 3-C adds a second dispatch point for the same AnalysisJob ID (the
+ * Mapping confirmation resume path, see AnalysisJobController::updateMapping()),
+ * doubling the surface area for an accidental duplicate dispatch (double
+ * form submit, a second browser tab, a retried HTTP request). ShouldBeUnique
+ * (uniqueId() below) is a *secondary* defense against that: Laravel's
+ * atomic cache lock (verified safe in this environment — see
+ * docs/product/MAPPING_CONTROL.md "ShouldBeUnique判断") refuses to queue a
+ * second job for the same analysisJobId while one is already
+ * pending/reserved. The primary defense is, and remains,
+ * AnalysisJobController::updateMapping()'s own `lockForUpdate()` +
+ * strict AnalysisJobStatus guard and ExecuteAnalysisJobAction's own
+ * defensive no-op for a Job that is no longer in a runnable state —
+ * both of those hold even if ShouldBeUnique were ever unavailable (e.g.
+ * a future cache backend without atomic lock support), so this
+ * interface is additive, not load-bearing.
  */
-class ExecuteAnalysisJob implements ShouldQueue
+class ExecuteAnalysisJob implements ShouldQueue, ShouldBeUnique
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
+
+    /**
+     * How long (seconds) the uniqueness lock is held once a job starts
+     * processing, per Laravel's ShouldBeUnique contract. Generously above
+     * the observed real-world duration of a full attempt (Mapping AI +
+     * Planning AI + Analyze AI have taken single-digit to low-double-digit
+     * seconds combined in practice), so a slow AI response never lets a
+     * duplicate dispatch slip through while this attempt is still
+     * genuinely running.
+     *
+     * @var int
+     */
+    public int $uniqueFor = 300;
 
     /**
      * The number of times the job may be attempted.
@@ -46,6 +76,17 @@ class ExecuteAnalysisJob implements ShouldQueue
     public function __construct(
         public readonly int $analysisJobId,
     ) {}
+
+    /**
+     * The lock key ShouldBeUnique uses: one AnalysisJob can never have
+     * more than one queued/reserved ExecuteAnalysisJob at a time,
+     * regardless of which of the two dispatch points (initial creation,
+     * or Mapping confirmation resume) sent it.
+     */
+    public function uniqueId(): string
+    {
+        return (string) $this->analysisJobId;
+    }
 
     /**
      * The number of seconds to wait before each retry attempt.

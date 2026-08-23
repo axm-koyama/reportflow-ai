@@ -195,6 +195,7 @@ Database values:
 1 = processing
 2 = completed
 3 = failed
+4 = awaiting_mapping_confirmation  (Phase 3-C, Template jobs only)
 ```
 
 PHP code should use a backed Enum.
@@ -208,10 +209,15 @@ enum AnalysisJobStatus: int
     case Processing = 1;
     case Completed = 2;
     case Failed = 3;
+    case AwaitingMappingConfirmation = 4;
 }
 ```
 
 Do not compare status using raw integers in business code.
+
+> **Phase 3-C で更新**: `AwaitingMappingConfirmation`を追加した。
+> `status`は`unsignedTinyInteger`でDB制約を持たないため、この追加に
+> migrationは不要だった。詳細はdocs/product/MAPPING_CONTROL.mdを参照。
 
 Expected lifecycle:
 
@@ -222,6 +228,27 @@ processing
    ↓
 completed
 ```
+
+Template-based AnalysisJob lifecycle when the AI-proposed Column Mapping
+cannot resolve a required field (Phase 3-C, see
+docs/product/MAPPING_CONTROL.md):
+
+```text
+pending
+   ↓
+processing
+   ↓
+awaiting_mapping_confirmation
+   ↓ (user confirms/overrides the mapping)
+pending
+   ↓
+processing
+   ↓
+completed
+```
+
+This is not a failure flow — the AnalysisJob never becomes Failed on
+account of a missing required field alone.
 
 Failure flow:
 
@@ -810,8 +837,15 @@ NormalizeAnalysisResultAction
 > column (docs/product/ANALYSIS_TEMPLATE_MODULE.md) — a Template-based
 > AnalysisJob makes a third AI call (Column Mapping) before Planning; a
 > free-form AnalysisJob (`template_key` null) is unaffected and still makes
-> exactly two. See ExecuteAnalysisJobAction's class docblock for the
-> current, authoritative pipeline order.
+> exactly two. Phase 3-C added `ResolveEffectiveColumnMappingAction` /
+> `FilterRecommendedDerivedMetricsAction` / `BuildAnalysisTemplateColumnCandidatesAction`,
+> a `awaiting_mapping_confirmation` AnalysisJob status, and a Mapping
+> confirmation resume path — a Template-based AnalysisJob still makes
+> exactly 3 AI calls total across its entire lifetime regardless of
+> whether Mapping confirmation was needed, since Column Mapping is never
+> called again once resolved (docs/product/MAPPING_CONTROL.md). See
+> ExecuteAnalysisJobAction's class docblock for the current, authoritative
+> pipeline order.
 
 ### CreateAnalysisJobAction
 

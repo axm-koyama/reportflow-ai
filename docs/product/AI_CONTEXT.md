@@ -196,6 +196,14 @@ BuildAnalysisContextAction 内では Data Profile を再計算しない。
 > `analysis_template` / `column_mapping`
 > (docs/product/ANALYSIS_TEMPLATE_MODULE.md)を追加している。以下は
 > 現在の実際のcontract。
+>
+> **Phase 3-C で更新**: `BuildAnalysisContextAction`自身は無変更だが、
+> `ExecuteAnalysisJobAction`が渡す`column_mapping`は、手動Mapping確認
+> を経由したTemplate Jobでは`effective_column_mapping`(Manual >
+> Validated AI Mapping)由来のsimple dictになる。AI Contextの`column_mapping`
+> が常に「実際にPlanning/Calculationで使われたのと同じFact」であること
+> を保証するための変更で、`BuildAnalysisContextAction`のcontract自体は
+> 変わらない。詳細はdocs/product/MAPPING_CONTROL.mdを参照。
 
 `BuildAnalysisContextAction` は以下の構造を返す。
 

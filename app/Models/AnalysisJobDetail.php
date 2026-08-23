@@ -13,7 +13,9 @@ use Illuminate\Support\Carbon;
 /**
  * @property int $analysis_job_id
  * @property string $prompt
- * @property array<string, array{column: string, confidence: string, status: string}>|null $column_mapping
+ * @property array<string, array{column: string|null, confidence: string, status: string}>|null $column_mapping AI-proposed mapping after ValidateColumnMappingAction — an audit record, never mutated after being written
+ * @property array<string, array{column: string|null}>|null $manual_column_mapping sparse: only fields the user explicitly touched (Phase 3-C, see docs/product/MAPPING_CONTROL.md)
+ * @property array<string, array{column: string|null, status: string, source: 'ai'|'manual'}>|null $effective_column_mapping the deterministic Manual > Validated AI > Unmapped result actually used by Planning/Calculation/Analyze (Phase 3-C)
  * @property string|null $raw_response
  * @property array<string, mixed>|null $result
  * @property string|null $error_message
@@ -54,6 +56,8 @@ class AnalysisJobDetail extends Model
         'analysis_job_id',
         'prompt',
         'column_mapping',
+        'manual_column_mapping',
+        'effective_column_mapping',
         'raw_response',
         'result',
         'error_message',
@@ -70,6 +74,8 @@ class AnalysisJobDetail extends Model
     {
         return [
             'column_mapping' => 'array',
+            'manual_column_mapping' => 'array',
+            'effective_column_mapping' => 'array',
             'result' => 'array',
             'started_at' => 'datetime',
             'completed_at' => 'datetime',

@@ -6,11 +6,18 @@
 > 完全に同じ動作)。Template指定時、Planning Contextへ`analysis_template`
 > (recommended_derived_metricsをヒントとして含む)と`column_mapping`が
 > 追加される。詳細は docs/product/ANALYSIS_TEMPLATE_MODULE.md §9を参照。
-> `recommended_derived_metrics`は`ResolveAnalysisTemplateAction`が
-> 検証済み`column_mapping`で事前にdeterministic filtering済みであり、
+> `recommended_derived_metrics`は事前にdeterministic filtering済みであり、
 > left_field/right_fieldの両方が"mapped"な組しかPlanning Contextへ
 > 渡らない(docs/product/ANALYSIS_TEMPLATE_MODULE.md §9.1)。
 > `CalculateDerivedMetricsAction`はこのPhaseでも一切変更していない。
+>
+> **Phase 3-C で更新**: Mapping確認・Manual Override導入に伴い、
+> `PlanDerivedMetricsAction`へ渡る`column_mapping`は、Template Jobが
+> 手動Mapping確認を経由した場合`effective_column_mapping`(Manual >
+> Validated AI Mapping)のsimple dict化になる。`recommended_derived_metrics`
+> のfilteringも、その場合はAI validated mappingではなくEffective
+> Mapping基準で再評価される。`PlanDerivedMetricsAction`自体のコードは
+> 無変更。詳細はdocs/product/MAPPING_CONTROL.mdを参照。
 
 ## 1. Purpose
 

@@ -202,6 +202,57 @@ class AnalysisJobModelTest extends TestCase
     }
 
     /**
+     * Phase 3-C: manual_column_mapping / effective_column_mapping are
+     * nullable and default to null — an existing (pre-Phase-3-C) row, and
+     * every Free Analysis row, is unaffected by these new columns.
+     */
+    public function test_manual_and_effective_column_mapping_are_nullable_and_default_to_null(): void
+    {
+        $analysisJob = AnalysisJob::factory()->create();
+        $detail = AnalysisJobDetail::factory()->for($analysisJob)->create();
+
+        $this->assertNull($detail->manual_column_mapping);
+        $this->assertNull($detail->effective_column_mapping);
+
+        $detail->refresh();
+
+        $this->assertNull($detail->manual_column_mapping);
+        $this->assertNull($detail->effective_column_mapping);
+    }
+
+    /**
+     * Phase 3-C (AH): manual_column_mapping / effective_column_mapping
+     * are cast to array and round-trip their respective shapes — the
+     * sparse {field: {column}} override diff, and the tagged
+     * {field: {column, status, source}} final Fact.
+     */
+    public function test_manual_and_effective_column_mapping_are_cast_to_array(): void
+    {
+        $analysisJob = AnalysisJob::factory()->create();
+        $manualColumnMapping = [
+            'category' => ['column' => '大分類'],
+            'customer' => ['column' => null],
+        ];
+        $effectiveColumnMapping = [
+            'category' => ['column' => '大分類', 'status' => 'mapped', 'source' => 'manual'],
+            'revenue' => ['column' => '売上金額', 'status' => 'mapped', 'source' => 'ai'],
+            'customer' => ['column' => null, 'status' => 'unmapped', 'source' => 'manual'],
+        ];
+
+        $detail = AnalysisJobDetail::factory()->for($analysisJob)->create([
+            'manual_column_mapping' => $manualColumnMapping,
+            'effective_column_mapping' => $effectiveColumnMapping,
+        ]);
+
+        $detail->refresh();
+
+        $this->assertIsArray($detail->manual_column_mapping);
+        $this->assertSame($manualColumnMapping, $detail->manual_column_mapping);
+        $this->assertIsArray($detail->effective_column_mapping);
+        $this->assertSame($effectiveColumnMapping, $detail->effective_column_mapping);
+    }
+
+    /**
      * 9. started_at / completed_at cast
      */
     public function test_started_at_and_completed_at_are_cast_to_datetime(): void

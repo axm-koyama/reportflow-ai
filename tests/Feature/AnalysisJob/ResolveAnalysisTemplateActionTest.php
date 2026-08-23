@@ -7,7 +7,6 @@ namespace Tests\Feature\AnalysisJob;
 use App\Actions\AnalysisJob\ResolveAnalysisTemplateAction;
 use App\AI\AiAnalysisClient;
 use InvalidArgumentException;
-use RuntimeException;
 use Tests\TestCase;
 
 class ResolveAnalysisTemplateActionTest extends TestCase
@@ -127,47 +126,86 @@ class ResolveAnalysisTemplateActionTest extends TestCase
     }
 
     /**
-     * Required field ("channel") missing -> exception with a
-     * business-readable message, no special status introduced.
+     * Phase 3-C: required field ("channel") missing no longer throws —
+     * ResolveAnalysisTemplateAction always returns successfully and
+     * reports missing_required_fields/missing_required_field_groups so
+     * the caller (ExecuteAnalysisJobAction) can decide whether to fail or
+     * pause for Mapping confirmation. See
+     * ResolveAnalysisTemplateActionTest::test_a_required_field_becoming_ambiguous_no_longer_throws()
+     * and ExecuteAnalysisJobActionTest for the orchestration-level
+     * consequence of this.
      */
-    public function test_required_field_missing_throws_a_business_readable_exception(): void
+    public function test_required_field_missing_is_reported_not_thrown(): void
     {
         $this->mockMapColumnsToReturn([
             ['field' => 'spend', 'column' => '広告コスト', 'confidence' => 'high'],
         ]);
 
-        try {
-            app(ResolveAnalysisTemplateAction::class)->execute('ad_performance', '', $this->dataProfile());
-            $this->fail('Expected a RuntimeException.');
-        } catch (RuntimeException $exception) {
-            $this->assertStringContainsString('広告パフォーマンス分析', $exception->getMessage());
-            $this->assertStringContainsString('チャネル', $exception->getMessage());
-        }
+        $result = app(ResolveAnalysisTemplateAction::class)->execute('ad_performance', '', $this->dataProfile());
+
+        $this->assertSame(['channel'], $result['missing_required_fields']);
+        $this->assertSame([], $result['missing_required_field_groups']);
+
+        // column_mapping_for_storage (the AI's partial proposal) is still
+        // fully computed and returned even though a required field is
+        // missing, so a caller can persist it for a Mapping Preview screen.
+        $this->assertSame('unmapped', $result['column_mapping_for_storage']['channel']['status']);
+        $this->assertSame('mapped', $result['column_mapping_for_storage']['spend']['status']);
+    }
+
+    /**
+     * missingRequiredFieldsMessage() still produces the same
+     * business-readable text as before — it is just no longer thrown
+     * automatically; a caller (ExecuteAnalysisJobAction or
+     * AnalysisJobController's Mapping confirmation flow) builds it
+     * explicitly when it decides the message is actually needed.
+     */
+    public function test_missing_required_fields_message_is_still_business_readable(): void
+    {
+        $this->mockMapColumnsToReturn([
+            ['field' => 'spend', 'column' => '広告コスト', 'confidence' => 'high'],
+        ]);
+
+        $action = app(ResolveAnalysisTemplateAction::class);
+        $result = $action->execute('ad_performance', '', $this->dataProfile());
+
+        $message = $action->missingRequiredFieldsMessage(
+            config('analysis_templates.ad_performance'),
+            config('analysis_templates.ad_performance.fields'),
+            config('analysis_templates.ad_performance.required_field_groups'),
+            $result['missing_required_fields'],
+            $result['missing_required_field_groups'],
+        );
+
+        $this->assertStringContainsString('広告パフォーマンス分析', $message);
+        $this->assertStringContainsString('チャネル', $message);
     }
 
     /**
      * Required field group (spend/revenue/conversions/clicks/impressions)
-     * entirely unmapped -> exception.
+     * entirely unmapped -> reported, not thrown.
      */
-    public function test_required_field_group_entirely_missing_throws_a_business_readable_exception(): void
+    public function test_required_field_group_entirely_missing_is_reported_not_thrown(): void
     {
         $this->mockMapColumnsToReturn([
             ['field' => 'channel', 'column' => '媒体', 'confidence' => 'high'],
         ]);
 
-        try {
-            app(ResolveAnalysisTemplateAction::class)->execute('ad_performance', '', $this->dataProfile());
-            $this->fail('Expected a RuntimeException.');
-        } catch (RuntimeException $exception) {
-            $this->assertStringContainsString('広告費', $exception->getMessage());
-        }
+        $result = app(ResolveAnalysisTemplateAction::class)->execute('ad_performance', '', $this->dataProfile());
+
+        $this->assertSame([], $result['missing_required_fields']);
+        $this->assertSame([0], $result['missing_required_field_groups']);
     }
 
     /**
      * A required field ("channel") that becomes ambiguous (two fields
-     * both claim its only high-confidence candidate column) also throws.
+     * both claim its only high-confidence candidate column) is also
+     * reported via missing_required_fields, not thrown — "ambiguous" is
+     * a status !== "mapped", so it is already covered by
+     * ValidateColumnMappingAction's existing missing_required_fields
+     * computation without any new detection logic.
      */
-    public function test_a_required_field_becoming_ambiguous_throws(): void
+    public function test_a_required_field_becoming_ambiguous_is_reported_not_thrown(): void
     {
         // Both "channel" and "campaign" claim "媒体" at high confidence.
         $this->mockMapColumnsToReturn([
@@ -176,9 +214,10 @@ class ResolveAnalysisTemplateActionTest extends TestCase
             ['field' => 'spend', 'column' => '広告コスト', 'confidence' => 'high'],
         ]);
 
-        $this->expectException(RuntimeException::class);
+        $result = app(ResolveAnalysisTemplateAction::class)->execute('ad_performance', '', $this->dataProfile());
 
-        app(ResolveAnalysisTemplateAction::class)->execute('ad_performance', '', $this->dataProfile());
+        $this->assertSame('ambiguous', $result['column_mapping_for_storage']['channel']['status']);
+        $this->assertSame(['channel'], $result['missing_required_fields']);
     }
 
     /**
