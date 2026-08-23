@@ -379,16 +379,85 @@ class BuildAnalysisContextActionTest extends TestCase
     }
 
     /**
-     * Output contract: 想定される6つのtop-level keyのみを返す
+     * Output contract: 想定される8つのtop-level keyのみを返す
      */
     public function test_execute_returns_exactly_the_expected_top_level_keys(): void
     {
         $context = $this->buildContext();
 
         $this->assertSame(
-            ['system_instruction', 'user_prompt', 'data_profile', 'aggregated_metrics', 'derived_metrics', 'output_schema'],
+            ['system_instruction', 'user_prompt', 'data_profile', 'aggregated_metrics', 'derived_metrics', 'analysis_template', 'column_mapping', 'output_schema'],
             array_keys($context),
         );
+    }
+
+    // --- Analysis Template integration -----------------------------------
+
+    /**
+     * Free Analysis(template未使用): analysis_templateはnull、
+     * column_mappingは[]がデフォルト。
+     */
+    public function test_free_analysis_defaults_analysis_template_to_null_and_column_mapping_to_empty(): void
+    {
+        $context = $this->buildContext();
+
+        $this->assertNull($context['analysis_template']);
+        $this->assertSame([], $context['column_mapping']);
+    }
+
+    public function test_analysis_template_matches_the_input_array_exactly(): void
+    {
+        $analysisTemplate = [
+            'name' => '広告パフォーマンス分析',
+            'instruction' => '広告チャネルごとの成果を比較してください。',
+            'recommended_derived_metrics' => [
+                ['name' => 'return_on_ad_spend', 'left_field' => 'revenue', 'right_field' => 'spend', 'operator_hint' => 'divide'],
+            ],
+        ];
+
+        $context = (new BuildAnalysisContextAction)->execute(
+            '分析してください',
+            $this->sampleDataProfile(),
+            $this->sampleAggregatedMetrics(),
+            $this->sampleDerivedMetrics(),
+            $analysisTemplate,
+            ['channel' => '媒体'],
+        );
+
+        $this->assertSame($analysisTemplate, $context['analysis_template']);
+    }
+
+    public function test_column_mapping_matches_the_input_array_exactly(): void
+    {
+        $columnMapping = ['channel' => '媒体', 'spend' => '広告コスト', 'revenue' => '売上金額'];
+
+        $context = (new BuildAnalysisContextAction)->execute(
+            '分析してください',
+            $this->sampleDataProfile(),
+            $this->sampleAggregatedMetrics(),
+            $this->sampleDerivedMetrics(),
+            null,
+            $columnMapping,
+        );
+
+        $this->assertSame($columnMapping, $context['column_mapping']);
+    }
+
+    public function test_system_instruction_treats_analysis_template_as_the_primary_objective(): void
+    {
+        $instruction = $this->buildContext()['system_instruction'];
+
+        $this->assertStringContainsString('analysis_template is not null', $instruction);
+        $this->assertStringContainsString('primary analysis objective', $instruction);
+    }
+
+    public function test_system_instruction_treats_column_mapping_as_a_validated_fact(): void
+    {
+        $instruction = $this->buildContext()['system_instruction'];
+
+        $this->assertStringContainsString('is a Fact', $instruction);
+        $this->assertStringContainsString('already validated by the application', $instruction);
+        $this->assertStringContainsString('prefer a business-friendly term', $instruction);
     }
 
     /**

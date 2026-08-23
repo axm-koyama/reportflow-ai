@@ -16,8 +16,8 @@ use RuntimeException;
  *
  * Responsibilities:
  * - Map the AI Context (system_instruction / user_prompt / data_profile /
- *   aggregated_metrics / derived_metrics / output_schema) onto an OpenAI
- *   Responses API request
+ *   aggregated_metrics / derived_metrics / analysis_template /
+ *   column_mapping / output_schema) onto an OpenAI Responses API request
  * - Request strict Structured Outputs (text.format.type = json_schema,
  *   strict = true) so the response conforms to ReportFlow AI's V1 Result
  *   Schema
@@ -27,21 +27,28 @@ use RuntimeException;
  *   docs/product/DERIVED_METRICS.md). It targets a different, much
  *   smaller Structured Output schema and never receives aggregated_metrics'
  *   actual numeric values.
+ * - Also expose mapColumns(): a third, independent request/response pair
+ *   used for Analysis Template Column Mapping (see
+ *   MapAnalysisTemplateColumnsAction / docs/product/ANALYSIS_TEMPLATE_MODULE.md).
+ *   Only reached when an AnalysisJob specifies a template_key; free-form
+ *   analysis never calls this method.
  *
  * Out of scope:
  * - Reading DataFile / CSV content (that is DataProfilingAction's
  *   responsibility; this client never receives a DataFile)
  * - Persisting anything to the database
- * - Normalizing/validating the returned JSON against the Result Schema or
- *   the Metric Plan (that is NormalizeAnalysisResultAction's /
- *   CalculateDerivedMetricsAction's responsibility, respectively)
+ * - Normalizing/validating the returned JSON against the Result Schema,
+ *   the Metric Plan, or the Column Mapping (that is
+ *   NormalizeAnalysisResultAction's / CalculateDerivedMetricsAction's /
+ *   ValidateColumnMappingAction's responsibility, respectively)
  * - Retrying failed requests (a single HTTP attempt is made per method
  *   call; retrying a failed AnalysisJob attempt is Laravel Queue's
  *   responsibility, see ExecuteAnalysisJob)
  * - Tool calling / function calling / any multi-turn conversation state
- *   (both methods send a single, stateless `store: false` request; see
+ *   (every method sends a single, stateless `store: false` request; see
  *   docs/product/DERIVED_METRICS.md "AIを2回呼ぶ理由" for why Metric
- *   Planning is a second independent request rather than a tool call)
+ *   Planning — and, by the same reasoning, Column Mapping — is an
+ *   independent request rather than a tool call)
  *
  * All application-level failures are raised as RuntimeException.
  */
@@ -72,6 +79,8 @@ class AiAnalysisClient
                 'data_profile' => $context['data_profile'],
                 'aggregated_metrics' => $context['aggregated_metrics'],
                 'derived_metrics' => $context['derived_metrics'],
+                'analysis_template' => $context['analysis_template'],
+                'column_mapping' => $context['column_mapping'],
             ], JSON_THROW_ON_ERROR);
         } catch (JsonException $exception) {
             throw new RuntimeException(
@@ -226,6 +235,8 @@ class AiAnalysisClient
                 'available_measures' => $context['available_measures'],
                 'available_aggregations' => $context['available_aggregations'],
                 'max_derived_metrics' => $context['max_derived_metrics'],
+                'analysis_template' => $context['analysis_template'],
+                'column_mapping' => $context['column_mapping'],
             ], JSON_THROW_ON_ERROR);
         } catch (JsonException $exception) {
             throw new RuntimeException(
@@ -318,6 +329,155 @@ class AiAnalysisClient
 
                 if (($contentItem['type'] ?? null) === 'refusal') {
                     throw new RuntimeException('OpenAI refused the metric planning request.');
+                }
+
+                if (($contentItem['type'] ?? null) === 'output_text'
+                    && is_string($contentItem['text'] ?? null)) {
+                    return $contentItem['text'];
+                }
+            }
+        }
+
+        throw new RuntimeException('OpenAI response did not contain structured output.');
+    }
+
+    /**
+     * Send an Analysis Template Column Mapping context to OpenAI and
+     * return its structured output JSON: a proposed, untrusted list of
+     * {field, column, confidence} mappings (see
+     * MapAnalysisTemplateColumnsAction, which is solely responsible for
+     * decoding this string, and ValidateColumnMappingAction, which is
+     * solely responsible for validating it — confidence tiering,
+     * ambiguous/duplicate detection, required-field gating).
+     *
+     * $context's "column_candidates" are pre-filtered by
+     * ResolveAnalysisTemplateAction using each semantic field's declared
+     * "kind" against DataProfilingAction's inferred_type, so this request
+     * only ever asks the AI to choose among type-plausible candidates —
+     * never the full column list. See
+     * docs/product/ANALYSIS_TEMPLATE_MODULE.md.
+     *
+     * This method's HTTP mechanics intentionally mirror analyze() /
+     * planMetrics() rather than sharing implementation with them, for the
+     * same reason documented on planMetrics(): existing methods have
+     * extensive test coverage, and a shared-internals refactor risks a
+     * subtle regression there for a modest amount of shared code.
+     * nonCompletedStatusMessage() is the one exception, reused as-is.
+     *
+     * @param array<string, mixed> $context
+     * @return string
+     * @throws RuntimeException if the API key is not configured, the
+     *                           Column Mapping Context cannot be encoded
+     *                           as JSON, the request fails (connection
+     *                           error or non-2xx status), or the response
+     *                           does not contain a usable structured
+     *                           output.
+     */
+    public function mapColumns(array $context): string
+    {
+        $apiKey = config('services.openai.key');
+
+        if (! is_string($apiKey) || $apiKey === '') {
+            throw new RuntimeException('OpenAI API key is not configured.');
+        }
+
+        try {
+            $inputText = json_encode([
+                'user_prompt' => $context['user_prompt'],
+                'template_fields' => $context['template_fields'],
+                'column_candidates' => $context['column_candidates'],
+            ], JSON_THROW_ON_ERROR);
+        } catch (JsonException $exception) {
+            throw new RuntimeException(
+                'Failed to encode Column Mapping Context as JSON.',
+                previous: $exception,
+            );
+        }
+
+        try {
+            $response = Http::withToken($apiKey)
+                ->timeout((int) config('services.openai.timeout'))
+                ->post((string) config('services.openai.responses_url'), [
+                    'model' => config('services.openai.model'),
+                    'store' => false,
+                    'instructions' => $context['system_instruction'],
+                    'input' => [
+                        [
+                            'role' => 'user',
+                            'content' => [
+                                [
+                                    'type' => 'input_text',
+                                    'text' => $inputText,
+                                ],
+                            ],
+                        ],
+                    ],
+                    'text' => [
+                        'format' => [
+                            'type' => 'json_schema',
+                            'name' => 'reportflow_column_mapping',
+                            'strict' => true,
+                            'schema' => $this->columnMappingSchema(),
+                        ],
+                    ],
+                ]);
+        } catch (ConnectionException $exception) {
+            throw new RuntimeException(
+                'OpenAI API request failed due to a connection error.',
+                previous: $exception,
+            );
+        }
+
+        if (! $response->successful()) {
+            throw new RuntimeException(
+                "OpenAI API request failed with HTTP status {$response->status()}.",
+            );
+        }
+
+        $responseBody = $response->json();
+
+        if (! is_array($responseBody)) {
+            throw new RuntimeException('OpenAI response had an unexpected shape.');
+        }
+
+        $status = $responseBody['status'] ?? null;
+
+        if ($status === 'incomplete') {
+            throw new RuntimeException('OpenAI response was incomplete.');
+        }
+
+        if ($status !== 'completed') {
+            throw new RuntimeException($this->nonCompletedStatusMessage($responseBody, $status));
+        }
+
+        $output = $responseBody['output'] ?? null;
+
+        if (! is_array($output)) {
+            throw new RuntimeException('OpenAI response had an unexpected shape.');
+        }
+
+        foreach ($output as $outputItem) {
+            if (! is_array($outputItem)) {
+                throw new RuntimeException('OpenAI response had an unexpected shape.');
+            }
+
+            if (($outputItem['type'] ?? null) !== 'message') {
+                continue;
+            }
+
+            $content = $outputItem['content'] ?? null;
+
+            if (! is_array($content)) {
+                throw new RuntimeException('OpenAI response had an unexpected shape.');
+            }
+
+            foreach ($content as $contentItem) {
+                if (! is_array($contentItem)) {
+                    throw new RuntimeException('OpenAI response had an unexpected shape.');
+                }
+
+                if (($contentItem['type'] ?? null) === 'refusal') {
+                    throw new RuntimeException('OpenAI refused the column mapping request.');
                 }
 
                 if (($contentItem['type'] ?? null) === 'output_text'
@@ -515,6 +675,47 @@ class AiAnalysisClient
                 ],
             ],
             'required' => ['derived_metrics'],
+            'additionalProperties' => false,
+        ];
+    }
+
+    /**
+     * The Structured Output schema for mapColumns(): a list of proposed
+     * {field, column, confidence} mappings. As with derivedMetricsPlanSchema(),
+     * the enum constraint on "confidence" is a first line of defense only —
+     * ValidateColumnMappingAction independently re-validates every field
+     * (does "column" actually appear in this field's column_candidates?
+     * is a column claimed by more than one field?), since this schema
+     * cannot know that.
+     *
+     * "column" is nullable: the AI must be able to say "no candidate
+     * fits" rather than being forced to name one.
+     *
+     * @return array<string, mixed>
+     */
+    private function columnMappingSchema(): array
+    {
+        return [
+            'type' => 'object',
+            'properties' => [
+                'mappings' => [
+                    'type' => 'array',
+                    'items' => [
+                        'type' => 'object',
+                        'properties' => [
+                            'field' => ['type' => 'string'],
+                            'column' => ['type' => ['string', 'null']],
+                            'confidence' => [
+                                'type' => 'string',
+                                'enum' => ['high', 'low', 'unmapped'],
+                            ],
+                        ],
+                        'required' => ['field', 'column', 'confidence'],
+                        'additionalProperties' => false,
+                    ],
+                ],
+            ],
+            'required' => ['mappings'],
             'additionalProperties' => false,
         ];
     }

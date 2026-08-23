@@ -189,11 +189,13 @@ BuildAnalysisContextAction 内では Data Profile を再計算しない。
 
 ## 6. Output Contract
 
-> **Phase 1 / Phase 2 で更新**: `BuildAnalysisContextAction` はこのAI_CONTEXT.md
-> が最初に構想した4-key contractに加え、Phase 1で `aggregated_metrics`
-> (docs/product/METRIC_AGGREGATION.md)、Phase 2で `derived_metrics`
-> (docs/product/DERIVED_METRICS.md)を追加している。以下は現在の実際の
-> contract。
+> **Phase 1 / Phase 2 / Phase 3-A で更新**: `BuildAnalysisContextAction` は
+> このAI_CONTEXT.mdが最初に構想した4-key contractに加え、Phase 1で
+> `aggregated_metrics`(docs/product/METRIC_AGGREGATION.md)、Phase 2で
+> `derived_metrics`(docs/product/DERIVED_METRICS.md)、Phase 3-Aで
+> `analysis_template` / `column_mapping`
+> (docs/product/ANALYSIS_TEMPLATE_MODULE.md)を追加している。以下は
+> 現在の実際のcontract。
 
 `BuildAnalysisContextAction` は以下の構造を返す。
 
@@ -204,6 +206,8 @@ BuildAnalysisContextAction 内では Data Profile を再計算しない。
     'data_profile' => array,
     'aggregated_metrics' => array,
     'derived_metrics' => array,
+    'analysis_template' => array|null,
+    'column_mapping' => array,
     'output_schema' => array,
 ]
 ```
@@ -242,6 +246,8 @@ BuildAnalysisContextAction 内では Data Profile を再計算しない。
         'metrics' => [],
         'rejected' => [],
     ],
+    'analysis_template' => null, // or {name, instruction, recommended_derived_metrics} when a Template was used
+    'column_mapping' => [], // or {semantic_field: real_column_name} when a Template was used
     'output_schema' => [
         // ReportFlow AI Result Schema
     ],

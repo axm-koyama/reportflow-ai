@@ -24,7 +24,9 @@ class AnalysisJobController extends Controller
         $this->ensureDataFileBelongsToProject($project, $dataFile);
         $this->ensureProjectIsActive($project);
 
-        return view('analysis-jobs.create', compact('project', 'dataFile'));
+        $analysisTemplates = config('analysis_templates');
+
+        return view('analysis-jobs.create', compact('project', 'dataFile', 'analysisTemplates'));
     }
 
     /**
@@ -39,7 +41,12 @@ class AnalysisJobController extends Controller
         $this->ensureDataFileBelongsToProject($project, $dataFile);
         $this->ensureProjectIsActive($project);
 
-        $analysisJob = $action->execute($dataFile, $request->title(), $request->prompt());
+        $analysisJob = $action->execute(
+            $dataFile,
+            $request->title(),
+            $request->prompt(),
+            $request->templateKey(),
+        );
 
         return redirect()->route('projects.analysis-jobs.show', [$project, $analysisJob]);
     }

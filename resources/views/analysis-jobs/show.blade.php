@@ -16,14 +16,38 @@
     @php($detail = $analysisJob->analysisJobDetail)
     @php($statusName = strtolower($analysisJob->status->name))
 
+    @php($templateName = $analysisJob->template_key ? (config('analysis_templates.'.$analysisJob->template_key.'.name') ?? $analysisJob->template_key) : null)
+
     <dl class="metadata card">
         <dt>Data File</dt><dd>{{ $analysisJob->dataFile->original_name }}</dd>
-        <dt>Prompt</dt><dd>{{ $detail?->prompt }}</dd>
+        @if ($templateName)
+            <dt>使用テンプレート</dt><dd>{{ $templateName }}</dd>
+        @endif
+        <dt>Prompt</dt><dd>{{ $detail?->prompt ?: '(なし)' }}</dd>
         <dt>Status</dt><dd><span class="badge badge-{{ $statusName }}">{{ $analysisJob->status->name }}</span></dd>
         <dt>Created At</dt><dd>{{ $analysisJob->created_at?->format('Y-m-d H:i:s') ?? '-' }}</dd>
         <dt>Started At</dt><dd>{{ $detail?->started_at?->format('Y-m-d H:i:s') ?? '-' }}</dd>
         <dt>Completed At</dt><dd>{{ $detail?->completed_at?->format('Y-m-d H:i:s') ?? '-' }}</dd>
     </dl>
+
+    @if ($templateName && $detail?->column_mapping)
+        <section class="card">
+            <h2>使用した列</h2>
+            <table>
+                <thead><tr><th>項目</th><th>CSV列</th><th>状態</th><th>確信度</th></tr></thead>
+                <tbody>
+                    @foreach ($detail->column_mapping as $field => $mapping)
+                        <tr>
+                            <td>{{ config("analysis_templates.{$analysisJob->template_key}.fields.{$field}.label") ?? $field }}</td>
+                            <td>{{ $mapping['column'] ?? '-' }}</td>
+                            <td>{{ $mapping['status'] }}</td>
+                            <td>{{ $mapping['confidence'] }}</td>
+                        </tr>
+                    @endforeach
+                </tbody>
+            </table>
+        </section>
+    @endif
 
     @if ($analysisJob->status === \App\Enums\AnalysisJobStatus::Pending)
         <div class="card">The analysis is waiting to start. This page refreshes every 5 seconds.</div>

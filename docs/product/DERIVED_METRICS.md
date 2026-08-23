@@ -1,5 +1,17 @@
 # Derived Metrics Engine Design (Phase 2)
 
+> **Phase 3-A で更新**: `PlanDerivedMetricsAction::execute()` は末尾optional
+>引数として `?array $analysisTemplate = null, array $columnMapping = []`
+> を受け取るようになった(自由分析時は省略時のデフォルトのまま、Phase 2と
+> 完全に同じ動作)。Template指定時、Planning Contextへ`analysis_template`
+> (recommended_derived_metricsをヒントとして含む)と`column_mapping`が
+> 追加される。詳細は docs/product/ANALYSIS_TEMPLATE_MODULE.md §9を参照。
+> `recommended_derived_metrics`は`ResolveAnalysisTemplateAction`が
+> 検証済み`column_mapping`で事前にdeterministic filtering済みであり、
+> left_field/right_fieldの両方が"mapped"な組しかPlanning Contextへ
+> 渡らない(docs/product/ANALYSIS_TEMPLATE_MODULE.md §9.1)。
+> `CalculateDerivedMetricsAction`はこのPhaseでも一切変更していない。
+
 ## 1. Purpose
 
 Phase 1(`MetricAggregationAction`)により、AIはdimension × measureの正確な

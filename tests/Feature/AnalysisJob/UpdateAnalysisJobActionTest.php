@@ -304,4 +304,36 @@ class UpdateAnalysisJobActionTest extends TestCase
 
         (new UpdateAnalysisJobAction)->markFailed($analysisJob, 'エラー');
     }
+
+    /**
+     * recordColumnMapping(): AnalysisJobDetail.column_mapping を保存する。
+     * ステータス遷移ではないため、Processing のまま変化しない。
+     */
+    public function test_record_column_mapping_persists_the_mapping_without_changing_status(): void
+    {
+        $analysisJob = AnalysisJob::factory()->create(['status' => AnalysisJobStatus::Processing]);
+        $detail = AnalysisJobDetail::factory()->for($analysisJob)->create();
+
+        $columnMapping = [
+            'channel' => ['column' => '媒体', 'confidence' => 'high', 'status' => 'mapped'],
+            'clicks' => ['column' => null, 'confidence' => 'unmapped', 'status' => 'unmapped'],
+        ];
+
+        (new UpdateAnalysisJobAction)->recordColumnMapping($analysisJob, $columnMapping);
+
+        $analysisJob->refresh();
+        $detail->refresh();
+
+        $this->assertSame(AnalysisJobStatus::Processing, $analysisJob->status);
+        $this->assertSame($columnMapping, $detail->column_mapping);
+    }
+
+    public function test_record_column_mapping_throws_when_detail_is_missing(): void
+    {
+        $analysisJob = AnalysisJob::factory()->create();
+
+        $this->expectException(RuntimeException::class);
+
+        (new UpdateAnalysisJobAction)->recordColumnMapping($analysisJob, []);
+    }
 }

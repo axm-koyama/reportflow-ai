@@ -31,6 +31,17 @@ class AnalysisJobControllerTest extends TestCase
             ->assertSee('Start Analysis');
     }
 
+    public function test_create_page_lists_the_available_analysis_templates(): void
+    {
+        $project = Project::factory()->create();
+        $dataFile = DataFile::factory()->for($project)->create();
+
+        $this->get(route('projects.data-files.analysis-jobs.create', [$project, $dataFile]))
+            ->assertOk()
+            ->assertViewHas('analysisTemplates', config('analysis_templates'))
+            ->assertSee('広告パフォーマンス分析');
+    }
+
     public function test_create_returns_not_found_for_another_projects_data_file(): void
     {
         $project = Project::factory()->create();
@@ -76,6 +87,43 @@ class AnalysisJobControllerTest extends TestCase
             ExecuteAnalysisJob::class,
             fn (ExecuteAnalysisJob $job): bool => $job->analysisJobId === $analysisJob->analysis_job_id,
         );
+    }
+
+    /**
+     * template_key指定時: AnalysisJobへtemplate_keyが保存され、
+     * promptは省略可能(自由分析のrequiredルールは適用されない)。
+     */
+    public function test_store_persists_the_template_key_and_allows_an_empty_prompt(): void
+    {
+        Queue::fake();
+        $project = Project::factory()->create();
+        $dataFile = DataFile::factory()->for($project)->create();
+
+        $response = $this->post(route('projects.data-files.analysis-jobs.store', [$project, $dataFile]), [
+            'title' => '広告分析',
+            'template_key' => 'ad_performance',
+        ]);
+
+        $analysisJob = AnalysisJob::query()->sole();
+        $response->assertRedirect(route('projects.analysis-jobs.show', [$project, $analysisJob]));
+        $this->assertSame('ad_performance', $analysisJob->template_key);
+        $this->assertDatabaseHas('analysis_job_details', [
+            'analysis_job_id' => $analysisJob->analysis_job_id,
+            'prompt' => '',
+        ]);
+    }
+
+    public function test_store_rejects_an_unknown_template_key(): void
+    {
+        $project = Project::factory()->create();
+        $dataFile = DataFile::factory()->for($project)->create();
+
+        $this->post(route('projects.data-files.analysis-jobs.store', [$project, $dataFile]), [
+            'title' => '広告分析',
+            'template_key' => 'not_a_real_template',
+        ])->assertSessionHasErrors('template_key');
+
+        $this->assertDatabaseCount('analysis_jobs', 0);
     }
 
     public function test_store_rejects_an_empty_prompt(): void

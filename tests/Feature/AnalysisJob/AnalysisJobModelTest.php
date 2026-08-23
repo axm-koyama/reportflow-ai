@@ -138,6 +138,70 @@ class AnalysisJobModelTest extends TestCase
     }
 
     /**
+     * template_key: nullable, defaults to null for free-form analysis.
+     */
+    public function test_template_key_is_nullable_and_defaults_to_null(): void
+    {
+        $analysisJob = AnalysisJob::factory()->create();
+
+        $this->assertNull($analysisJob->template_key);
+
+        $analysisJob->refresh();
+
+        $this->assertNull($analysisJob->template_key);
+    }
+
+    /**
+     * template_key: persists a Template-based AnalysisJob's key.
+     */
+    public function test_template_key_persists_when_set(): void
+    {
+        $analysisJob = AnalysisJob::factory()->create(['template_key' => 'ad_performance']);
+
+        $analysisJob->refresh();
+
+        $this->assertSame('ad_performance', $analysisJob->template_key);
+    }
+
+    /**
+     * column_mapping: nullable, defaults to null.
+     */
+    public function test_column_mapping_is_nullable_and_defaults_to_null(): void
+    {
+        $analysisJob = AnalysisJob::factory()->create();
+        $detail = AnalysisJobDetail::factory()->for($analysisJob)->create();
+
+        $this->assertNull($detail->column_mapping);
+
+        $detail->refresh();
+
+        $this->assertNull($detail->column_mapping);
+    }
+
+    /**
+     * column_mapping: cast to array, round-trips the {column, confidence,
+     * status} shape used by ValidateColumnMappingAction.
+     */
+    public function test_column_mapping_is_cast_to_array(): void
+    {
+        $analysisJob = AnalysisJob::factory()->create();
+        $columnMapping = [
+            'channel' => ['column' => '媒体', 'confidence' => 'high', 'status' => 'mapped'],
+            'spend' => ['column' => '広告コスト', 'confidence' => 'high', 'status' => 'mapped'],
+            'clicks' => ['column' => null, 'confidence' => 'unmapped', 'status' => 'unmapped'],
+        ];
+
+        $detail = AnalysisJobDetail::factory()->for($analysisJob)->create([
+            'column_mapping' => $columnMapping,
+        ]);
+
+        $detail->refresh();
+
+        $this->assertIsArray($detail->column_mapping);
+        $this->assertSame($columnMapping, $detail->column_mapping);
+    }
+
+    /**
      * 9. started_at / completed_at cast
      */
     public function test_started_at_and_completed_at_are_cast_to_datetime(): void

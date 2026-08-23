@@ -101,6 +101,8 @@ class AiAnalysisClientTest extends TestCase
             'data_profile' => $this->context()['data_profile'],
             'aggregated_metrics' => $this->context()['aggregated_metrics'],
             'derived_metrics' => $this->context()['derived_metrics'],
+            'analysis_template' => $this->context()['analysis_template'],
+            'column_mapping' => $this->context()['column_mapping'],
         ], $input);
 
         $format = $payload['text']['format'];
@@ -396,17 +398,22 @@ class AiAnalysisClientTest extends TestCase
         // the actual limit; the System Instruction never hardcodes it.
         $this->assertSame($this->planningContext()['max_derived_metrics'], $input['max_derived_metrics']);
 
+        // analysis_template / column_mapping are included (structured, not
+        // embedded into user_prompt — see docs/product/ANALYSIS_TEMPLATE_MODULE.md).
+        $this->assertSame($this->planningContext()['analysis_template'], $input['analysis_template']);
+        $this->assertSame($this->planningContext()['column_mapping'], $input['column_mapping']);
+
         // ...but no aggregated_metrics numeric values, data_profile, or
         // derived_metrics are present anywhere in the planning payload.
         $this->assertArrayNotHasKey('aggregated_metrics', $input);
         $this->assertArrayNotHasKey('data_profile', $input);
         $this->assertArrayNotHasKey('derived_metrics', $input);
 
-        // Only the 5 expected top-level keys are sent — no numeric
+        // Only the 7 expected top-level keys are sent — no numeric
         // aggregated_metrics values (sums/counts/averages) sneak in
         // through an unexpected key.
         $this->assertSame(
-            ['user_prompt', 'available_dimensions', 'available_measures', 'available_aggregations', 'max_derived_metrics'],
+            ['user_prompt', 'available_dimensions', 'available_measures', 'available_aggregations', 'max_derived_metrics', 'analysis_template', 'column_mapping'],
             array_keys($input),
         );
 
@@ -516,6 +523,156 @@ class AiAnalysisClientTest extends TestCase
     }
 
     /**
+     * mapColumns(): request shape, and that only type-filtered column
+     * candidates (never the full Data Profile) are sent.
+     */
+    public function test_map_columns_sends_the_mapping_request_and_returns_structured_output(): void
+    {
+        $payload = null;
+        $mapResponse = json_encode(['mappings' => []], JSON_THROW_ON_ERROR);
+
+        Http::fake(function (Request $request) use (&$payload, $mapResponse) {
+            $payload = json_decode($request->body(), true, flags: JSON_THROW_ON_ERROR);
+
+            return Http::response($this->completedResponse($mapResponse));
+        });
+
+        $result = (new AiAnalysisClient)->mapColumns($this->mappingContext());
+
+        $this->assertSame($mapResponse, $result);
+        Http::assertSentCount(1);
+        Http::assertSent(function (Request $request): bool {
+            return $request->method() === 'POST'
+                && $request->url() === 'https://api.openai.com/v1/responses'
+                && $request->hasHeader('Authorization', 'Bearer test-openai-key');
+        });
+
+        $this->assertIsArray($payload);
+        $this->assertSame('gpt-5.4-mini', $payload['model']);
+        $this->assertFalse($payload['store']);
+        $this->assertSame($this->mappingContext()['system_instruction'], $payload['instructions']);
+
+        $input = json_decode(
+            $payload['input'][0]['content'][0]['text'],
+            true,
+            flags: JSON_THROW_ON_ERROR,
+        );
+
+        $this->assertSame($this->mappingContext()['user_prompt'], $input['user_prompt']);
+        $this->assertSame($this->mappingContext()['template_fields'], $input['template_fields']);
+        $this->assertSame($this->mappingContext()['column_candidates'], $input['column_candidates']);
+
+        // Only the 3 expected top-level keys are sent.
+        $this->assertSame(['user_prompt', 'template_fields', 'column_candidates'], array_keys($input));
+
+        $format = $payload['text']['format'];
+        $this->assertSame('json_schema', $format['type']);
+        $this->assertSame('reportflow_column_mapping', $format['name']);
+        $this->assertTrue($format['strict']);
+
+        $schema = $format['schema'];
+        $this->assertSame(['mappings'], $schema['required']);
+        $this->assertFalse($schema['additionalProperties']);
+
+        $item = $schema['properties']['mappings']['items'];
+        $this->assertSame(['field', 'column', 'confidence'], $item['required']);
+        $this->assertFalse($item['additionalProperties']);
+        $this->assertSame(['string', 'null'], $item['properties']['column']['type']);
+        $this->assertSame(['high', 'low', 'unmapped'], $item['properties']['confidence']['enum']);
+    }
+
+    public function test_map_columns_returns_proposed_mappings_when_the_ai_proposes_some(): void
+    {
+        $plan = [
+            'mappings' => [
+                ['field' => 'channel', 'column' => '媒体', 'confidence' => 'high'],
+                ['field' => 'clicks', 'column' => null, 'confidence' => 'unmapped'],
+            ],
+        ];
+        $mapResponse = json_encode($plan, JSON_THROW_ON_ERROR);
+
+        Http::fake([
+            'https://api.openai.com/v1/responses' => Http::response($this->completedResponse($mapResponse)),
+        ]);
+
+        $result = (new AiAnalysisClient)->mapColumns($this->mappingContext());
+
+        $this->assertSame($mapResponse, $result);
+    }
+
+    public function test_map_columns_throws_when_the_api_key_is_not_configured(): void
+    {
+        config(['services.openai.key' => null]);
+        Http::fake();
+
+        try {
+            (new AiAnalysisClient)->mapColumns($this->mappingContext());
+
+            $this->fail('Expected a RuntimeException.');
+        } catch (RuntimeException $exception) {
+            $this->assertSame('OpenAI API key is not configured.', $exception->getMessage());
+        }
+
+        Http::assertNothingSent();
+    }
+
+    public function test_map_columns_throws_for_unsuccessful_http_responses(): void
+    {
+        Http::fake([
+            'https://api.openai.com/v1/responses' => Http::response([], 500),
+        ]);
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('OpenAI API request failed with HTTP status 500.');
+
+        (new AiAnalysisClient)->mapColumns($this->mappingContext());
+    }
+
+    public function test_map_columns_throws_when_openai_refuses_the_request(): void
+    {
+        Http::fake([
+            'https://api.openai.com/v1/responses' => Http::response([
+                'status' => 'completed',
+                'output' => [[
+                    'type' => 'message',
+                    'content' => [[
+                        'type' => 'refusal',
+                        'refusal' => 'Sensitive request.',
+                    ]],
+                ]],
+            ]),
+        ]);
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('OpenAI refused the column mapping request.');
+
+        (new AiAnalysisClient)->mapColumns($this->mappingContext());
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function mappingContext(): array
+    {
+        return [
+            'system_instruction' => 'Map each semantic field to the best-fitting CSV column.',
+            'user_prompt' => '',
+            'template_fields' => [
+                ['field' => 'channel', 'kind' => 'dimension', 'label' => 'チャネル'],
+                ['field' => 'spend', 'kind' => 'measure', 'label' => '広告費'],
+            ],
+            'column_candidates' => [
+                'channel' => [
+                    ['column' => '媒体', 'inferred_type' => 'string', 'sample_values' => ['Email', 'Paid Search']],
+                ],
+                'spend' => [
+                    ['column' => '広告コスト', 'inferred_type' => 'integer', 'sample_values' => ['120000', '150000']],
+                ],
+            ],
+        ];
+    }
+
+    /**
      * @return array<string, mixed>
      */
     private function planningContext(): array
@@ -527,6 +684,8 @@ class AiAnalysisClientTest extends TestCase
             'available_measures' => ['spend', 'revenue', 'conversions'],
             'available_aggregations' => ['sum', 'count', 'avg'],
             'max_derived_metrics' => 5,
+            'analysis_template' => null,
+            'column_mapping' => [],
         ];
     }
 
@@ -557,6 +716,8 @@ class AiAnalysisClientTest extends TestCase
                 'metrics' => [],
                 'rejected' => [],
             ],
+            'analysis_template' => null,
+            'column_mapping' => [],
             'output_schema' => [
                 'summary' => 'string',
             ],

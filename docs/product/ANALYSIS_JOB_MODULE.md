@@ -804,8 +804,14 @@ NormalizeAnalysisResultAction
 > `MetricAggregationAction` (docs/product/METRIC_AGGREGATION.md). Phase 2
 > added `PlanDerivedMetricsAction` and `CalculateDerivedMetricsAction`
 > (docs/product/DERIVED_METRICS.md), making a total of two AI calls per
-> AnalysisJob execution attempt instead of one. See ExecuteAnalysisJobAction's
-> class docblock for the current, authoritative pipeline order.
+> AnalysisJob execution attempt instead of one. Phase 3-A added
+> `ResolveAnalysisTemplateAction` / `MapAnalysisTemplateColumnsAction` /
+> `ValidateColumnMappingAction` and a nullable `analysis_jobs.template_key`
+> column (docs/product/ANALYSIS_TEMPLATE_MODULE.md) — a Template-based
+> AnalysisJob makes a third AI call (Column Mapping) before Planning; a
+> free-form AnalysisJob (`template_key` null) is unaffected and still makes
+> exactly two. See ExecuteAnalysisJobAction's class docblock for the
+> current, authoritative pipeline order.
 
 ### CreateAnalysisJobAction
 
@@ -971,10 +977,17 @@ Expected HTTP validation:
 - `title` is required
 - `title` is a string
 - `title` maximum length is 255
-- `prompt` is required
 - `prompt` is a string
+- `prompt` maximum length is 5000
 
-Exact prompt length limits should be determined before implementation based on the intended AI request constraints.
+> **Phase 3-A で更新**: `template_key` / `prompt` の実際のvalidation ruleは
+> Analysis Template導入後、以下の通り。詳細は
+> docs/product/ANALYSIS_TEMPLATE_MODULE.md §8を参照。
+
+- `template_key` is nullable — omitting it (free-form analysis) is valid
+- `template_key`, when present, must be a key that exists in `config('analysis_templates')` — an unknown key is rejected here (`Rule::in`), before an AnalysisJob is ever created
+- `prompt` is required when `template_key` is absent (`required_without:template_key`) — this preserves free-form analysis's original "prompt is always required" behavior exactly
+- `prompt` is optional when `template_key` is present — it is the user's optional additional request alongside the Template's fixed instruction; an omitted/blank prompt is stored as `''`, never `null`
 
 The FormRequest validates HTTP input.
 

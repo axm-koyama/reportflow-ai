@@ -16,6 +16,9 @@ use RuntimeException;
  * Each transition updates AnalysisJob.status together with the related
  * AnalysisJobDetail fields inside a single database transaction, so a
  * partial update is never left behind.
+ *
+ * recordColumnMapping() is the one exception: it is not a status
+ * transition (see its own docblock).
  */
 class UpdateAnalysisJobAction
 {
@@ -117,6 +120,26 @@ class UpdateAnalysisJobAction
                 'completed_at' => now(),
             ]);
         });
+    }
+
+    /**
+     * Record the resolved Analysis Template column mapping for the
+     * current attempt (see ResolveAnalysisTemplateAction /
+     * docs/product/ANALYSIS_TEMPLATE_MODULE.md). Not a status transition:
+     * call this between markProcessing() and markCompleted()/markFailed()
+     * when an Analysis Template was used. For free-form analysis
+     * (template_key null), this is never called, and column_mapping
+     * simply stays null.
+     *
+     * @param AnalysisJob $analysisJob
+     * @param array<string, array{column: string|null, confidence: string, status: string}> $columnMapping
+     * @return void
+     */
+    public function recordColumnMapping(AnalysisJob $analysisJob, array $columnMapping): void
+    {
+        $this->detailFor($analysisJob)->update([
+            'column_mapping' => $columnMapping,
+        ]);
     }
 
     /**

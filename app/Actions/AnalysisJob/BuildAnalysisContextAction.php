@@ -10,25 +10,37 @@ namespace App\Actions\AnalysisJob;
  * Combines the fixed System Instruction, the user's prompt (kept as-is),
  * the DataProfilingAction output (kept as-is), the MetricAggregationAction
  * output (kept as-is), the CalculateDerivedMetricsAction output (kept
- * as-is), and the ReportFlow AI Output Schema into a single AI Request
- * Context. See:
+ * as-is), the resolved Analysis Template / column mapping (kept as-is,
+ * when an Analysis Template was used), and the ReportFlow AI Output
+ * Schema into a single AI Request Context. See:
  *
  * - docs/product/AI_CONTEXT.md
  * - docs/product/AI_ANALYSIS.md
  * - docs/product/DATA_PROFILING.md
  * - docs/product/METRIC_AGGREGATION.md
  * - docs/product/DERIVED_METRICS.md
+ * - docs/product/ANALYSIS_TEMPLATE_MODULE.md
  *
  * This action builds the Context for the *final analysis* AI call only.
  * The separate, earlier Metric Planning AI call has its own, much smaller
- * context built by PlanDerivedMetricsAction — this action is never
- * involved in planning.
+ * context built by PlanDerivedMetricsAction, and the separate, earlier
+ * Column Mapping AI call has its own context built by
+ * MapAnalysisTemplateColumnsAction — this action is never involved in
+ * either.
+ *
+ * analysis_template and column_mapping are passed as their own structured
+ * context keys, never embedded into user_prompt: user_prompt always
+ * remains exactly what the user typed (see AI_CONTEXT.md §5.1 "Prompt
+ * rewriteを行わない"), and column_mapping is a Laravel-validated Fact, not
+ * prose for the AI to parse (see docs/product/ANALYSIS_TEMPLATE_MODULE.md
+ * "structured context設計").
  *
  * This is a pure application transformation: it does not read CSVs, call
  * an AI provider, update AnalysisJob status, or touch the database.
  * It does not validate the prompt, the Data Profile, the Aggregated
- * Metrics, or the Derived Metrics (see AI_CONTEXT.md §23/§24 — all are
- * treated as already valid by the time they reach this action).
+ * Metrics, the Derived Metrics, the Analysis Template, or the Column
+ * Mapping (see AI_CONTEXT.md §23/§24 — all are treated as already valid
+ * by the time they reach this action).
  */
 class BuildAnalysisContextAction
 {
@@ -39,16 +51,26 @@ class BuildAnalysisContextAction
      * @param array<string, mixed> $dataProfile
      * @param array<string, mixed> $aggregatedMetrics the MetricAggregationAction output for the same DataFile
      * @param array<string, mixed> $derivedMetrics the CalculateDerivedMetricsAction output for the same AnalysisJob
+     * @param array{name: string, instruction: string, recommended_derived_metrics: list<array<string, mixed>>}|null $analysisTemplate the Template resolved by ResolveAnalysisTemplateAction, or null for free-form analysis
+     * @param array<string, string> $columnMapping semantic field => real column name, resolved by ResolveAnalysisTemplateAction ([] for free-form analysis)
      * @return array<string, mixed>
      */
-    public function execute(string $prompt, array $dataProfile, array $aggregatedMetrics, array $derivedMetrics): array
-    {
+    public function execute(
+        string $prompt,
+        array $dataProfile,
+        array $aggregatedMetrics,
+        array $derivedMetrics,
+        ?array $analysisTemplate = null,
+        array $columnMapping = [],
+    ): array {
         return [
             'system_instruction' => $this->systemInstruction(),
             'user_prompt' => $prompt,
             'data_profile' => $dataProfile,
             'aggregated_metrics' => $aggregatedMetrics,
             'derived_metrics' => $derivedMetrics,
+            'analysis_template' => $analysisTemplate,
+            'column_mapping' => $columnMapping,
             'output_schema' => $this->outputSchema(),
         ];
     }
@@ -122,6 +144,24 @@ class BuildAnalysisContextAction
             18. A derived_metrics group entry with "result": null means that value
             could not be computed (for example, division by zero or missing data)
             — state this as insufficient data rather than guessing a number.
+
+            19. When analysis_template is not null, it describes the business
+            analysis purpose the user selected. Treat its "instruction" as the
+            primary analysis objective, alongside user_prompt.
+
+            20. column_mapping (semantic field name -> real column name) is a Fact
+            already validated by the application, exactly like aggregated_metrics.
+            Do not second-guess it, and do not assume a semantic field exists if it
+            is not a key in column_mapping.
+
+            21. When describing a semantic field from analysis_template or
+            column_mapping in your response, prefer a business-friendly term (for
+            example the field's own name, such as "channel") over the raw CSV
+            column name, so the result reads naturally for a business user.
+
+            22. Do not assume a semantic field is present in the data just because
+            analysis_template mentions it. Only fields that are keys in
+            column_mapping were actually found in this dataset.
             TEXT;
     }
 

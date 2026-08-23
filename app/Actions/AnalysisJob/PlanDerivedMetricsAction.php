@@ -16,13 +16,35 @@ use JsonException;
  * Responsibilities:
  * - Build the Metric Planning Context: user_prompt, the list of dimension
  *   names / measure names / aggregation types actually available in
- *   aggregated_metrics (names only — no sums, counts, or averages), and
+ *   aggregated_metrics (names only — no sums, counts, or averages),
  *   max_derived_metrics (read from config/derived_metrics.php, the same
  *   Single Source of Truth CalculateDerivedMetricsAction enforces — see
- *   docs/product/DERIVED_METRICS.md "max_derived_metrics")
+ *   docs/product/DERIVED_METRICS.md "max_derived_metrics"), and, when an
+ *   Analysis Template was used, analysis_template / column_mapping (see
+ *   docs/product/ANALYSIS_TEMPLATE_MODULE.md)
  * - Call AiAnalysisClient::planMetrics()
  * - Decode the raw response into a list of untrusted, unvalidated
  *   CalculationDefinition arrays
+ *
+ * analysis_template and column_mapping are passed as structured context
+ * keys, never embedded into user_prompt — user_prompt always remains
+ * exactly what the user typed (see AI_CONTEXT.md §5.1 "Prompt rewriteを
+ * 行わない"). Laravel resolves *which* real column corresponds to each
+ * semantic field (column_mapping is a validated Fact); translating a
+ * template's semantic recommended_derived_metrics hint (e.g. "spend")
+ * into an actual CalculationDefinition operand (e.g. "広告コスト") is left
+ * to the AI's own semantic judgment using that Fact — this action does
+ * not perform that translation itself.
+ *
+ * analysis_template.recommended_derived_metrics, by the time it reaches
+ * this action, has already been deterministically filtered by
+ * ResolveAnalysisTemplateAction to only the hints whose left_field and
+ * right_field both resolved to a mapped column (see that action's
+ * docblock and docs/product/ANALYSIS_TEMPLATE_MODULE.md §9.1) — this
+ * action never receives a hint referencing an unmapped field. The
+ * System Instruction's own "ignore a hint referencing an unmapped field"
+ * rule (Rule 9 below) is kept anyway as defense in depth, since this
+ * action's contract does not depend on the caller having filtered.
  *
  * This action never validates a CalculationDefinition's semantics (does
  * "revenue" actually exist as a measure? is "channel" an allowed
@@ -32,7 +54,8 @@ use JsonException;
  * NormalizeAnalysisResultAction (validates it).
  *
  * Out of scope: computing any derived metric value, reading aggregated_metrics'
- * numeric values, persistence, AnalysisJob status updates.
+ * numeric values, resolving column_mapping (ResolveAnalysisTemplateAction),
+ * persistence, AnalysisJob status updates.
  */
 class PlanDerivedMetricsAction
 {
@@ -56,12 +79,18 @@ class PlanDerivedMetricsAction
      *
      * @param string $prompt
      * @param array<string, mixed> $aggregatedMetrics the MetricAggregationAction output for this AnalysisJob
+     * @param array{name: string, instruction: string, recommended_derived_metrics: list<array<string, mixed>>}|null $analysisTemplate the Template resolved by ResolveAnalysisTemplateAction, or null for free-form analysis
+     * @param array<string, string> $columnMapping semantic field => real column name, resolved by ResolveAnalysisTemplateAction ([] for free-form analysis)
      * @return list<array<string, mixed>> raw, untrusted CalculationDefinitions
      * @throws InvalidArgumentException if the AI response is not valid JSON
      *                                   or does not contain a "derived_metrics" array.
      */
-    public function execute(string $prompt, array $aggregatedMetrics): array
-    {
+    public function execute(
+        string $prompt,
+        array $aggregatedMetrics,
+        ?array $analysisTemplate = null,
+        array $columnMapping = [],
+    ): array {
         $availableDimensions = array_column($aggregatedMetrics['dimensions'] ?? [], 'dimension');
         $availableMeasures = $aggregatedMetrics['measures'] ?? [];
 
@@ -76,6 +105,8 @@ class PlanDerivedMetricsAction
             'available_measures' => $availableMeasures,
             'available_aggregations' => self::AVAILABLE_AGGREGATIONS,
             'max_derived_metrics' => (int) config('derived_metrics.max_derived_metrics', 5),
+            'analysis_template' => $analysisTemplate,
+            'column_mapping' => $columnMapping,
         ];
 
         $rawResponse = $this->aiAnalysisClient->planMetrics($context);
@@ -151,7 +182,23 @@ class PlanDerivedMetricsAction
             7. If no derived metric would meaningfully help answer the user's request,
             return an empty list. An empty list is a valid and often correct answer.
 
-            8. Return only the required structured output.
+            8. If analysis_template is not null, its "instruction" describes the
+            business analysis goal the user selected by choosing that template. Weigh
+            it alongside user_prompt when deciding which derived metrics are useful,
+            even when user_prompt is empty.
+
+            9. If analysis_template is not null, its "recommended_derived_metrics" are
+            hints, not requirements. Each hint's "left_field"/"right_field" are
+            semantic field names (e.g. "spend"), not real column names — translate
+            them into real column names using column_mapping before using them as a
+            "metric". If a hint references a field that is not a key in column_mapping,
+            or the resulting metric is not in available_measures, ignore that hint
+            entirely rather than inventing a value. A hint's "operator_hint" is a
+            suggestion; still choose "operator" following Rule 6 above. You may also
+            propose derived metrics that are not listed in recommended_derived_metrics
+            when they are clearly useful for the request.
+
+            10. Return only the required structured output.
             TEXT;
     }
 

@@ -13,6 +13,7 @@ use Illuminate\Support\Carbon;
 /**
  * @property int $analysis_job_id
  * @property string $prompt
+ * @property array<string, array{column: string, confidence: string, status: string}>|null $column_mapping
  * @property string|null $raw_response
  * @property array<string, mixed>|null $result
  * @property string|null $error_message
@@ -52,6 +53,7 @@ class AnalysisJobDetail extends Model
     protected $fillable = [
         'analysis_job_id',
         'prompt',
+        'column_mapping',
         'raw_response',
         'result',
         'error_message',
@@ -67,6 +69,7 @@ class AnalysisJobDetail extends Model
     protected function casts(): array
     {
         return [
+            'column_mapping' => 'array',
             'result' => 'array',
             'started_at' => 'datetime',
             'completed_at' => 'datetime',

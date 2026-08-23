@@ -32,11 +32,15 @@ class PlanDerivedMetricsActionTest extends TestCase
      * boilerplate in every test.
      *
      * @param array<string, mixed>|null $aggregatedMetrics
+     * @param array<string, mixed>|null $analysisTemplate
+     * @param array<string, string> $columnMapping
      * @return array<string, mixed>
      */
     private function capturePlanningContext(
         string $prompt = '分析してください',
         ?array $aggregatedMetrics = null,
+        ?array $analysisTemplate = null,
+        array $columnMapping = [],
     ): array {
         $capturedContext = null;
 
@@ -50,11 +54,30 @@ class PlanDerivedMetricsActionTest extends TestCase
             })
             ->andReturn(json_encode(['derived_metrics' => []], JSON_THROW_ON_ERROR));
 
-        app(PlanDerivedMetricsAction::class)->execute($prompt, $aggregatedMetrics ?? $this->aggregatedMetrics());
+        app(PlanDerivedMetricsAction::class)->execute(
+            $prompt,
+            $aggregatedMetrics ?? $this->aggregatedMetrics(),
+            $analysisTemplate,
+            $columnMapping,
+        );
 
         $this->assertIsArray($capturedContext);
 
         return $capturedContext;
+    }
+
+    /**
+     * @return array{name: string, instruction: string, recommended_derived_metrics: list<array<string, mixed>>}
+     */
+    private function sampleAnalysisTemplate(): array
+    {
+        return [
+            'name' => '広告パフォーマンス分析',
+            'instruction' => '広告チャネルごとの成果を比較し、効率が良いチャネルと改善が必要なチャネルを特定してください。',
+            'recommended_derived_metrics' => [
+                ['name' => 'return_on_ad_spend', 'left_field' => 'revenue', 'right_field' => 'spend', 'operator_hint' => 'divide'],
+            ],
+        ];
     }
 
     public function test_it_sends_user_prompt_and_available_names_to_ai_analysis_client(): void
@@ -67,6 +90,54 @@ class PlanDerivedMetricsActionTest extends TestCase
         $this->assertSame(['sum', 'count', 'avg'], $context['available_aggregations']);
         $this->assertIsString($context['system_instruction']);
         $this->assertNotSame('', $context['system_instruction']);
+    }
+
+    /**
+     * Free analysis (no template): analysis_template is null and
+     * column_mapping is empty by default — the exact same Planning
+     * Context shape Phase 2 already sent.
+     */
+    public function test_free_analysis_sends_a_null_analysis_template_and_empty_column_mapping(): void
+    {
+        $context = $this->capturePlanningContext();
+
+        $this->assertNull($context['analysis_template']);
+        $this->assertSame([], $context['column_mapping']);
+    }
+
+    // --- Analysis Template integration -----------------------------------
+
+    public function test_planning_context_includes_the_resolved_analysis_template_and_column_mapping(): void
+    {
+        $columnMapping = ['channel' => '媒体', 'spend' => '広告コスト', 'revenue' => '売上金額'];
+
+        $context = $this->capturePlanningContext(
+            analysisTemplate: $this->sampleAnalysisTemplate(),
+            columnMapping: $columnMapping,
+        );
+
+        $this->assertSame($this->sampleAnalysisTemplate(), $context['analysis_template']);
+        $this->assertSame($columnMapping, $context['column_mapping']);
+    }
+
+    public function test_system_instruction_treats_analysis_template_instruction_alongside_user_prompt(): void
+    {
+        $instruction = $this->capturePlanningContext(analysisTemplate: $this->sampleAnalysisTemplate())['system_instruction'];
+
+        $this->assertStringContainsString('analysis_template is not null', $instruction);
+        $this->assertStringContainsString('business analysis goal', $instruction);
+        $this->assertStringContainsString('even when user_prompt is empty', $instruction);
+    }
+
+    public function test_system_instruction_explains_how_to_translate_recommended_derived_metrics_via_column_mapping(): void
+    {
+        $instruction = $this->capturePlanningContext(analysisTemplate: $this->sampleAnalysisTemplate())['system_instruction'];
+
+        $this->assertStringContainsString('recommended_derived_metrics', $instruction);
+        $this->assertStringContainsString('hints, not requirements', $instruction);
+        $this->assertStringContainsString('translate', $instruction);
+        $this->assertStringContainsString('column_mapping', $instruction);
+        $this->assertStringContainsString('ignore that hint', $instruction);
     }
 
     // --- max_derived_metrics: config as Single Source of Truth -----------

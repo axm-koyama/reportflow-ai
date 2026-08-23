@@ -24,6 +24,7 @@ class CreateAnalysisJobRequestTest extends TestCase
             return response()->json([
                 'title' => $request->title(),
                 'prompt' => $request->prompt(),
+                'template_key' => $request->templateKey(),
             ]);
         });
     }
@@ -182,6 +183,112 @@ class CreateAnalysisJobRequestTest extends TestCase
         $response->assertExactJson([
             'title' => '地域別売上比較',
             'prompt' => '地域別の売上を比較してください。',
+            'template_key' => null,
         ]);
+    }
+
+    // --- template_key ----------------------------------------------------
+
+    /**
+     * template_key: 未指定は自由分析として許可される(後方互換)
+     */
+    public function test_template_key_is_optional(): void
+    {
+        $response = $this->postJson('/__test/analysis-jobs', [
+            'title' => 'タイトル',
+            'prompt' => 'プロンプト',
+        ]);
+
+        $response->assertOk();
+        $response->assertJsonPath('template_key', null);
+    }
+
+    /**
+     * template_key: config('analysis_templates')に存在しないkeyは拒否される
+     */
+    public function test_an_unknown_template_key_is_rejected(): void
+    {
+        $response = $this->postJson('/__test/analysis-jobs', [
+            'title' => 'タイトル',
+            'prompt' => 'プロンプト',
+            'template_key' => 'not_a_real_template',
+        ]);
+
+        $response->assertStatus(422);
+        $response->assertJsonValidationErrors('template_key');
+    }
+
+    /**
+     * template_key: config('analysis_templates')に実在するkeyは許可される
+     */
+    public function test_a_known_template_key_is_accepted(): void
+    {
+        $response = $this->postJson('/__test/analysis-jobs', [
+            'title' => 'タイトル',
+            'template_key' => 'ad_performance',
+        ]);
+
+        $response->assertOk();
+        $response->assertJsonPath('template_key', 'ad_performance');
+    }
+
+    // --- prompt: template_key有無による必須/任意の切り替え -----------------
+
+    /**
+     * prompt: template_keyが無い場合(自由分析)は引き続き必須(既存動作)
+     */
+    public function test_prompt_is_required_when_no_template_key_is_given(): void
+    {
+        $response = $this->postJson('/__test/analysis-jobs', [
+            'title' => 'タイトル',
+        ]);
+
+        $response->assertStatus(422);
+        $response->assertJsonValidationErrors('prompt');
+    }
+
+    /**
+     * prompt: template_keyがある場合は省略可能
+     */
+    public function test_prompt_is_optional_when_a_template_key_is_given(): void
+    {
+        $response = $this->postJson('/__test/analysis-jobs', [
+            'title' => 'タイトル',
+            'template_key' => 'ad_performance',
+        ]);
+
+        $response->assertOk();
+        $response->assertJsonPath('prompt', '');
+    }
+
+    /**
+     * prompt: template_keyがある場合、空白のみの入力も""として扱われる
+     * (ConvertEmptyStringsToNullによりnull化 -> prompt()が''へcast)
+     */
+    public function test_prompt_is_cast_to_empty_string_not_null_when_blank_with_a_template_key(): void
+    {
+        $response = $this->postJson('/__test/analysis-jobs', [
+            'title' => 'タイトル',
+            'template_key' => 'ad_performance',
+            'prompt' => '   ',
+        ]);
+
+        $response->assertOk();
+        $response->assertJsonPath('prompt', '');
+    }
+
+    /**
+     * prompt: template_keyがあっても追加要望を入力すればそのまま保持される
+     */
+    public function test_prompt_is_still_accepted_alongside_a_template_key(): void
+    {
+        $response = $this->postJson('/__test/analysis-jobs', [
+            'title' => 'タイトル',
+            'template_key' => 'ad_performance',
+            'prompt' => '特にEmailを詳しく見たい',
+        ]);
+
+        $response->assertOk();
+        $response->assertJsonPath('prompt', '特にEmailを詳しく見たい');
     }
 }

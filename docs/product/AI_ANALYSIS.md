@@ -1021,6 +1021,12 @@ streaming処理・近似アルゴリズム・DB側集計等を含めて検討す
 
 ## 24. V1 Processing Flow
 
+> **Phase 3-A で更新**: 以下はV1(自由分析のみ)時点のフロー図。Phase 3-Aで
+> Analysis Templateを選択した場合、`DataProfilingAction`の後に
+> Column Mapping(AI呼び出し1回)が追加される。詳細と最新のフロー図は
+> docs/product/ANALYSIS_TEMPLATE_MODULE.md §3を参照。`template_key`が
+> nullの自由分析は、以下の図のまま完全に無変更で動作する。
+
 V1の最終的な処理フローは以下とする。
 
 ```text

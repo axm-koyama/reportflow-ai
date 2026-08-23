@@ -17,6 +17,7 @@ use Illuminate\Support\Carbon;
  * @property int $analysis_job_id
  * @property int $data_file_id
  * @property string $title
+ * @property string|null $template_key config/analysis_templates.php key, or null for free-form analysis
  * @property AnalysisJobStatus $status
  * @property Carbon|null $created_at
  * @property Carbon|null $updated_at
@@ -44,6 +45,7 @@ class AnalysisJob extends Model
     protected $fillable = [
         'data_file_id',
         'title',
+        'template_key',
         'status',
     ];
 
