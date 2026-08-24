@@ -694,3 +694,215 @@ Browser E2Eでの実ブラウザ確認記録はdocs/product/DIAGNOSIS_ENGINE.md
 (display_baseline方式)の実行結果である。Gap基準修正後もCase A/B/Cの
 band(Low/Medium)自体は変化しない(§12の再確認テーブル参照)ため、
 記録済みのBrowser E2E結果は引き続き有効。
+
+## 26. Product Validation — Browser実行記録(formula v1.1、Case A/B/C + Dominant Bad Channel 90%)
+
+Phase 4-C Product Validationでは、Phase 4-A/4-B Product Validation
+(docs/product/DIAGNOSIS_ENGINE.md §19)で使用したsynthetic CSVを再利用
+し、Gap基準修正後のformula(`priority_v1.1`)で:
+
+- Evaluation Level
+- Priority Eligibility
+- Impact
+- leave-one-out Gap(`test_baseline_value`基準)
+- Priority Band
+- Diagnosis regression
+
+が実際のBrowser画面で人間の業務直感と一致するかを、実Docker環境・実
+OpenAI APIで確認した。
+
+**Priorityは「施策実行優先度」ではなく「確認・調査優先度」である。**
+以下の記録において「Priority High」「確認優先度High」という表現は、
+すべて「先に確認・調査する価値が高い」という意味であり、「すぐに
+budget増減・targeting変更・creative変更等の施策を実行すべき」という
+意味では**ない**(§2参照)。
+
+### 26-1. Case A — Balanced Traffic
+
+CSV: `phase4a_case_a_balanced_v2.csv`(全channel clicks=12,000)。
+
+| Entity | CVR | Evaluation | 流量影響 | 比較対照との差 | 確認優先度 |
+|---|---|---|---|---|---|
+| Display | 4.50% | Medium | 20.0% | 0.50pp | Low |
+| Social | 3.50% | High | 20.0% | 1.75pp | Medium |
+| Email | 5.50%(Above) | High | — | — | Priorityなし(favorable) |
+| Organic | 5.00%(Above) | Low | — | — | Priorityなし(low) |
+| Paid Search | 6.00%(Above) | High | — | — | Priorityなし(favorable) |
+
+Diagnosis: Display / Social の2件のみ、両方`insufficient_explanatory_evidence`。
+
+**確認結果: PASS**
+
+重要な確認事項:
+
+- Impactが同じ20%でも、Gapが大きいSocialの確認優先度がDisplayより高い
+- `Social > Display`のrelative rankingが成立(§10 §21の不変条件と整合)
+- Evaluation本体のDifference列(display baseline基準、-0.40pp/-1.40pp)
+  と、確認優先度の説明に出るPriority Gap(test baseline基準、
+  0.50pp/1.75pp)がUI上ではっきり分離されている(§8-1・§14参照)
+- Priority追加によるDiagnosis regressionなし(件数・対象entityとも
+  Priority Eligibleな2件と一致)
+
+### 26-2. Case B — Low Sample
+
+CSV: `phase4a_case_b_low_sample_v2.csv`。実際の各channel値
+(Paid Search 10000/600, Organic 8000/440, Email 40/3, Display 120/4,
+Social 80/2、total clicks = 18,240)を使用。
+
+| Entity | CVR | Evaluation | 流量影響 | 比較対照との差 | 確認優先度 |
+|---|---|---|---|---|---|
+| Display | 3.33% | Medium | 0.7%(120/18,240) | 2.43pp | Low |
+| Email | 7.50% | Insufficient data | — | — | Priorityなし |
+| Social | 2.50% | Insufficient data | — | — | Priorityなし |
+| Organic | 5.50% | Low | — | — | Priorityなし |
+| Paid Search | 6.00% | Low | — | — | Priorityなし |
+
+Diagnosis: Displayのみ、`insufficient_explanatory_evidence`。
+
+**確認結果: PASS**
+
+重要な確認事項:
+
+- Gap(2.43pp)が相対的に大きくてもImpact(0.7%)が小さいため確認
+  優先度はLow——「見かけ上のCVR差が大きい」だけでは確認優先度は
+  上がらない
+- `insufficient_data`はPriority対象外(Email/Social)
+- `impact_total`はeligible entity(Displayのみ)の合計ではなく、
+  valid denominatorを持つ**全**entity(Display+Email+Social+Organic+
+  Paid Search)の合計——DB実測`impact_total = 18,240.00000000`を確認済み
+  (§7の設計通り)
+
+### 26-3. Case C — Dominant Channel
+
+CSV: `phase4a_case_c_dominant_channel_v2.csv`(total clicks = 100,000、
+display baseline = 5.04%)。
+
+| Entity | CVR | Evaluation Difference(display baseline基準) | Evaluation | 流量影響 | 比較対照との差(test baseline基準) | 確認優先度 |
+|---|---|---|---|---|---|---|
+| Display | 4.00% | -1.04pp | High | 2.5% | 1.06pp | Low |
+| Email | 3.00% | -2.04pp | High | 2.5% | 2.09pp | Low |
+| Organic | 6.00%(Above) | — | High | — | — | Priorityなし(favorable) |
+| Social | 8.00%(Above) | — | High | — | — | Priorityなし(favorable) |
+| Paid Search | 5.00%(Below) | — | Low | — | — | Priorityなし(low) |
+
+Diagnosis: Display / Emailのみ、両方`insufficient_explanatory_evidence`。
+
+**確認結果: PASS**
+
+重要な確認事項:
+
+- **Evaluation High ≠ 確認優先度High**——Display/EmailはどちらもHigh
+  評価だが、traffic shareが2.5%しかないため確認優先度はLow(Phase
+  4-Cの核心的価値提案を実データで裏付ける最重要ケースの1つ)
+- `Email(2.09pp) > Display(1.06pp)`のrelative rankingが成立
+- favorable High(Organic/Social)はPriority対象外
+- Evaluation Difference(display baseline基準、-1.04pp/-2.04pp)と
+  比較対照との差(test baseline基準、1.06pp/2.09pp)は別の値であり、
+  混同していない(§8-1・§14参照)
+
+### 26-4. Dominant Bad Channel(90% traffic share)
+
+自己希釈修正の効果を確認する最重要synthetic case。
+
+CSV: `phase4c_dominant_bad_channel_90pct.csv`(total clicks = 100,000、
+display baseline = 3.30%、Social traffic impact = 90.0%)。
+
+Browser実行記録: Created At 2026-08-24 21:13:31 / Started At
+2026-08-24 21:13:32 / Completed At 2026-08-24 21:13:43。
+
+入力:
+
+| Entity | clicks | conversions | CVR |
+|---|---:|---:|---|
+| Social | 90,000 | 2,700 | 3.00% |
+| Display | 2,500 | 150 | 6.00% |
+| Email | 2,500 | 150 | 6.00% |
+| Organic | 2,500 | 150 | 6.00% |
+| Paid Search | 2,500 | 150 | 6.00% |
+
+Evaluation / Priority結果:
+
+| Entity | CVR | Display baseline | Evaluation Difference | Direction | Evaluation | 流量影響 | 比較対照との差 | 確認優先度 |
+|---|---|---|---|---|---|---|---|---|
+| Display | 6.00% | 3.30% | +2.70pp | Above | High | — | — | Priorityなし(favorable) |
+| Email | 6.00% | 3.30% | +2.70pp | Above | High | — | — | Priorityなし(favorable) |
+| Organic | 6.00% | 3.30% | +2.70pp | Above | High | — | — | Priorityなし(favorable) |
+| Paid Search | 6.00% | 3.30% | +2.70pp | Above | High | — | — | Priorityなし(favorable) |
+| Social | 3.00% | 3.30% | -0.30pp | Below | Medium | 90.0% | 3.00pp | **High** |
+
+Diagnosis: Socialのみ、`insufficient_explanatory_evidence`。
+
+**確認結果: PASS**
+
+### 26-5. Dominant Bad Channelで確認できた重要点
+
+このケースはPhase 4-C v1.1の最重要Product Validationとして記録する。
+
+確認できたこと: **Evaluation Medium + 確認優先度High が同時に成立し、
+これは矛盾ではない。**
+
+```text
+Evaluation: 「統計的signalの強さ」
+確認優先度: 「このproblemを先に確認すべきbusiness impact」
+```
+
+を別々に表すため。
+
+Priority Gap(`test_baseline_value`基準)を使うことで、dominant
+entity自身がdisplay baselineを引き寄せるself-dilution問題を、
+Priority側では回避できている(§8-1)。
+
+一方、Phase 4-A Evaluation Levelでは`display_baseline`基準の
+deltaをpractical significance判定に使用しているため、90%
+dominant entityではpeer gap(leave-one-out)が大きくても、
+display-baseline差はそのentity自身に引き寄せられて縮小し、
+Evaluationがhigh→mediumへdowngradeされる(§8-2 Known Limitation、
+docs/product/EVALUATION_ENGINE.md §15クロスリファレンスに文書化
+済み)。**これはPhase 4-Aの既知の制約であり、Phase 4-Cでは変更
+していない。**
+
+### 26-6. 4ケース総括
+
+| Case | Entity | Evaluation | Impact | Peer Gap | 確認優先度 | Result |
+|---|---|---|---:|---:|---|---|
+| A | Display | Medium | 20.0% | 0.50pp | Low | PASS |
+| A | Social | High | 20.0% | 1.75pp | Medium | PASS |
+| B | Display | Medium | 0.7% | 2.43pp | Low | PASS |
+| C | Display | High | 2.5% | 1.06pp | Low | PASS |
+| C | Email | High | 2.5% | 2.09pp | Low | PASS |
+| Dominant Bad 90% | Social | Medium | 90.0% | 3.00pp | High | PASS |
+
+### 26-7. Product Validation結論
+
+**Phase 4-C Priority Layer v1.1 Product Validation: PASS**
+
+確認できたInvariant:
+
+```text
+Evaluation High ≠ Priority High
+Evaluation MediumでもImpactが大きければPriority Highになり得る
+insufficient_dataはPriorityなし
+favorable anomalyはPriorityなし
+higher Gap with same Impact → higher Priority
+larger Impact with significant Gap → higher Priority
+Priority AI call = 0
+Diagnosis結果の有無でPriorityは変わらない
+PriorityとDiagnosisは責務分離されている
+```
+
+### 26-8. formula_version
+
+本Product Validationはすべて`formula_version = priority_v1.1`で
+実施した。
+
+```text
+v1.1: gap_raw_value = abs(metric_value - test_baseline_value)
+```
+
+(§8「Gap — 定義」、§18「formula_version」参照)。
+
+### 26-9. AI Call / Cost
+
+Phase 4-C Priority自体による追加AI Call: **0**。Priority追加による
+API cost: **$0**(§23参照)。Diagnosis AI call数はPhase 4-B仕様の
+まま(Priority追加による変化なし、§26-1〜26-4の各ケースで確認済み)。
