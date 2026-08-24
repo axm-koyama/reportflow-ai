@@ -642,6 +642,17 @@ null
 
 十分な根拠がなくpriorityを付けるべきでない場合。
 
+> **Phase 4-B追記**: このschema(`recommendations[].priority`)自体は
+> 後方互換性のため変更していない。ただしDecision-enabled AnalysisJob
+> (`template_key`が`config/evaluation_metrics.php`にエントリを持つ)
+> では、Final AnalyzeのSystem Instructionへ`recommendations`を空配列で
+> 返すよう追加Ruleを付与しており、新規実行ではこのpriority自体が実質
+> 出現しなくなる——将来的なLaravel deterministic priority formula
+> (Phase 4-C以降のFuture Scope)との二重Source of Truthを避けるため。
+> 過去に保存されたrecommendations(Free Analysis / sales_analysis /
+> Phase 4-B以前のAnalysisJob)はUI上引き続き表示される。詳細は
+> docs/product/DIAGNOSIS_ENGINE.md参照。
+
 ---
 
 ## 19. Provider-neutral Output Schema

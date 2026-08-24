@@ -586,6 +586,20 @@ Phase 4-AではEvaluationFactを`BuildAnalysisContextAction` /
 していない。Phase 4-AはEvaluationの正確性を単独で検証するPhaseであり、
 Phase 4-B Diagnosis開始時に正式にDecision Contextへ組み込む想定。
 
+> **Phase 4-B実装済み追記**: 上記の想定通り、EvaluationFactは
+> `BuildAnalysisContextAction`/`AiAnalysisClient::analyze()`へは
+> 依然として渡していない(analyze()のcontext構造は不変)。代わりに、
+> `RunDiagnosisForAnalysisJobAction`が`EvaluateAnalysisJobAction`永続化後の
+> EvaluationFact行を読み、Diagnosis-eligibleなFactだけを対象に別のAI呼び出し
+> (`AiAnalysisClient::diagnose()`)を行う——「EvaluationFactをFinal Analyzeへ
+> 渡す」のではなく、「EvaluationFactを起点に専用のDiagnosis Layerを新設する」
+> 形でDecision Contextへ組み込まれた。また`BuildAnalysisContextAction`は
+> Decision-enabled(`template_key`が`config/evaluation_metrics.php`に
+> エントリを持つ)AnalysisJobについてのみ、Final AnalyzeのSystem
+> Instructionへ「causal diagnosis / priority / action recommendationを
+> 行わない」追加ルールを付与するようになった(既存Rule 1-22は無変更)。
+> 詳細はdocs/product/DIAGNOSIS_ENGINE.md参照。
+
 ## 25. UI
 
 `resources/views/analysis-jobs/show.blade.php`に、AnalysisJobが
@@ -602,7 +616,9 @@ Difference / Direction / Evaluation。rate値・baseline・deltaは
 - historical_avg / previous_period / target baseline
 - absolute metric evaluator(rate以外のmetric_type)
 - percentile
-- Diagnosis AI / diagnosis_categories / confidence calibration
+- ~~Diagnosis AI / diagnosis_categories~~ → Phase 4-Bで実装済み。
+  confidence calibration(self_reported_confidenceのcalibration)は
+  引き続き未実装。docs/product/DIAGNOSIS_ENGINE.md参照。
 - Priority formula
 - Action Catalog / Action AI
 - user feedback

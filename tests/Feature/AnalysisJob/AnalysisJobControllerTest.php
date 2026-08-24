@@ -10,6 +10,8 @@ use App\Jobs\ExecuteAnalysisJob;
 use App\Models\AnalysisJob;
 use App\Models\AnalysisJobDetail;
 use App\Models\DataFile;
+use App\Models\DiagnosisResult;
+use App\Models\EvaluationFact;
 use App\Models\Project;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Queue;
@@ -211,6 +213,125 @@ class AnalysisJobControllerTest extends TestCase
             ->assertSee('Tokyo led growth.')
             ->assertDontSee('secret raw response')
             ->assertDontSee('http-equiv="refresh"', false);
+    }
+
+    /**
+     * Phase 4-B: an empty "recommendations" array (the expected shape for
+     * a new Decision-enabled result) hides the Recommendations section
+     * entirely — see docs/product/DIAGNOSIS_ENGINE.md "Legacy
+     * Recommendation UI".
+     */
+    public function test_completed_page_hides_the_recommendations_section_when_it_is_empty(): void
+    {
+        $result = [
+            'summary' => 'Sales grew.',
+            'highlights' => [],
+            'metrics' => [],
+            'tables' => [],
+            'insights' => [],
+            'recommendations' => [],
+        ];
+        [$project, $analysisJob] = $this->analysisJob(AnalysisJobStatus::Completed, [
+            'result' => $result,
+            'completed_at' => now(),
+        ]);
+
+        $this->get(route('projects.analysis-jobs.show', [$project, $analysisJob]))
+            ->assertOk()
+            ->assertDontSee('Recommendations');
+    }
+
+    /**
+     * Phase 4-B: the "原因の仮説" section shows one entry per
+     * Diagnosis-eligible EvaluationFact. An eligible fact with a
+     * DiagnosisResult shows its category label / rationale / missing
+     * evidence; an eligible fact without one (a per-entity soft-fail)
+     * shows "診断結果を取得できませんでした"; a non-eligible fact (favorable
+     * here) shows neither. self_reported_confidence is never rendered.
+     * See docs/product/DIAGNOSIS_ENGINE.md "Minimal UI".
+     */
+    public function test_completed_page_displays_the_diagnosis_section(): void
+    {
+        $project = Project::factory()->create();
+        $dataFile = DataFile::factory()->for($project)->create(['original_name' => 'ads.csv']);
+        $analysisJob = AnalysisJob::factory()->for($dataFile)->create([
+            'status' => AnalysisJobStatus::Completed,
+            'template_key' => 'ad_performance',
+        ]);
+        AnalysisJobDetail::factory()->for($analysisJob)->create([
+            'result' => ['summary' => 's', 'highlights' => [], 'metrics' => [], 'tables' => [], 'insights' => [], 'recommendations' => []],
+            'completed_at' => now(),
+        ]);
+
+        $diagnosed = EvaluationFact::factory()->for($analysisJob, 'analysisJob')->create([
+            'entity_key' => 'Social', 'evaluation_level' => 'high', 'direction' => 'below',
+        ]);
+        DiagnosisResult::factory()->create([
+            'analysis_job_id' => $analysisJob->analysis_job_id,
+            'evaluation_fact_id' => $diagnosed->evaluation_fact_id,
+            'category_key' => 'insufficient_explanatory_evidence',
+            'self_reported_confidence' => 0.42,
+            'rationale_summary' => '証拠からは特定の原因を判断できません。',
+            'missing_evidence_json' => ['landing-page-level conversion rate'],
+        ]);
+
+        EvaluationFact::factory()->for($analysisJob, 'analysisJob')->create([
+            'entity_key' => 'Display', 'evaluation_level' => 'medium', 'direction' => 'below',
+        ]);
+
+        EvaluationFact::factory()->for($analysisJob, 'analysisJob')->create([
+            'entity_key' => 'Email', 'evaluation_level' => 'high', 'direction' => 'above',
+        ]);
+
+        $response = $this->get(route('projects.analysis-jobs.show', [$project, $analysisJob]))
+            ->assertOk()
+            ->assertSee('原因の仮説')
+            ->assertSee('十分な根拠がありません')
+            ->assertSee('証拠からは特定の原因を判断できません。')
+            ->assertSee('landing-page-level conversion rate')
+            ->assertSee('診断結果を取得できませんでした');
+
+        $response->assertDontSee('0.42');
+    }
+
+    /**
+     * measurement_consistency_risk's Japanese label must read as an
+     * unconfirmed verification candidate, never as a confirmed finding —
+     * see docs/product/DIAGNOSIS_ENGINE.md "measurement_consistency_risk
+     * semantics".
+     */
+    public function test_completed_page_displays_the_measurement_consistency_risk_label_without_overclaiming(): void
+    {
+        $project = Project::factory()->create();
+        $dataFile = DataFile::factory()->for($project)->create(['original_name' => 'ads.csv']);
+        $analysisJob = AnalysisJob::factory()->for($dataFile)->create([
+            'status' => AnalysisJobStatus::Completed,
+            'template_key' => 'ad_performance',
+        ]);
+        AnalysisJobDetail::factory()->for($analysisJob)->create([
+            'result' => ['summary' => 's', 'highlights' => [], 'metrics' => [], 'tables' => [], 'insights' => [], 'recommendations' => []],
+            'completed_at' => now(),
+        ]);
+
+        $fact = EvaluationFact::factory()->for($analysisJob, 'analysisJob')->create([
+            'entity_key' => 'X', 'evaluation_level' => 'high', 'direction' => 'below',
+            'numerator_value' => 0, 'denominator_value' => 1000,
+        ]);
+        DiagnosisResult::factory()->create([
+            'analysis_job_id' => $analysisJob->analysis_job_id,
+            'evaluation_fact_id' => $fact->evaluation_fact_id,
+            'category_key' => 'measurement_consistency_risk',
+            'rationale_summary' => '計測整合性を確認する価値がある一方、本当にコンバージョンが0件だった可能性も同程度に残ります。',
+        ]);
+
+        $response = $this->get(route('projects.analysis-jobs.show', [$project, $analysisJob]))
+            ->assertOk()
+            ->assertSee('計測整合性の確認候補');
+
+        $response->assertDontSee('計測異常');
+        $response->assertDontSee('トラッキング異常');
+        $response->assertDontSee('計測問題');
+        $response->assertDontSee('tracking failure');
     }
 
     public function test_failed_page_displays_the_error_without_refreshing(): void

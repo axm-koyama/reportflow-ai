@@ -32,6 +32,13 @@ use RuntimeException;
  *   MapAnalysisTemplateColumnsAction / docs/product/ANALYSIS_TEMPLATE_MODULE.md).
  *   Only reached when an AnalysisJob specifies a template_key; free-form
  *   analysis never calls this method.
+ * - Also expose diagnose(): a fourth, independent request/response pair
+ *   used for Phase 4-B Controlled Diagnosis (see
+ *   RunDiagnosisForAnalysisJobAction / docs/product/DIAGNOSIS_ENGINE.md).
+ *   Only reached per already-eligible EvaluationFact (see
+ *   DetermineDiagnosisEligibilityAction); it never receives a DataFile,
+ *   sample_rows, a full Data Profile, or user_prompt — only the minimal
+ *   Evidence Package (trigger_fact / supporting_facts / allowed_categories).
  *
  * Out of scope:
  * - Reading DataFile / CSV content (that is DataProfilingAction's
@@ -491,6 +498,163 @@ class AiAnalysisClient
     }
 
     /**
+     * Send a Phase 4-B Diagnosis context to OpenAI and return its
+     * structured output JSON: exactly one primary_diagnosis (category_key
+     * / self_reported_confidence / rationale_summary / evidence_refs /
+     * missing_evidence — see NormalizeDiagnosisResultAction, which is
+     * solely responsible for decoding and re-validating this string).
+     *
+     * $context's "allowed_categories" is this specific EvaluationFact's
+     * Evidence-gated category set (see BuildDiagnosisEvidencePackageAction)
+     * — never the full config/diagnosis_categories.php catalog. It drives
+     * diagnosisResultSchema()'s dynamic "enum", exactly like
+     * derivedMetricsPlanSchema()'s "group_by" enum is driven by a specific
+     * request's available_dimensions (see that schema's docblock for the
+     * general rationale: an API-level "enum" is a stronger guarantee than
+     * asking nicely in the prompt, but it only ever narrows an
+     * already-non-nullable string field to real, offered values — it
+     * never widens anything).
+     *
+     * Unlike analyze()/planMetrics()/mapColumns(), $context never carries
+     * a user_prompt or any Data Profile/sample_rows — see
+     * docs/product/DIAGNOSIS_ENGINE.md "raw sample_rows禁止" /
+     * "user_prompt禁止". The Evidence Package (trigger_fact /
+     * supporting_facts) is the entire numeric input.
+     *
+     * This method's HTTP mechanics intentionally mirror analyze() /
+     * planMetrics() / mapColumns() rather than sharing implementation with
+     * them, for the same reason documented on planMetrics(): existing
+     * methods have extensive test coverage, and a shared-internals
+     * refactor risks a subtle regression there for a modest amount of
+     * shared code. nonCompletedStatusMessage() is the one exception,
+     * reused as-is.
+     *
+     * @param array<string, mixed> $context
+     * @return string
+     * @throws RuntimeException if the API key is not configured, the
+     *                           Diagnosis Context cannot be encoded as
+     *                           JSON, the request fails (connection error
+     *                           or non-2xx status), or the response does
+     *                           not contain a usable structured output.
+     */
+    public function diagnose(array $context): string
+    {
+        $apiKey = config('services.openai.key');
+
+        if (! is_string($apiKey) || $apiKey === '') {
+            throw new RuntimeException('OpenAI API key is not configured.');
+        }
+
+        try {
+            $inputText = json_encode([
+                'trigger_fact' => $context['trigger_fact'],
+                'supporting_facts' => $context['supporting_facts'],
+                'allowed_categories' => $context['allowed_categories'],
+            ], JSON_THROW_ON_ERROR);
+        } catch (JsonException $exception) {
+            throw new RuntimeException(
+                'Failed to encode Diagnosis Context as JSON.',
+                previous: $exception,
+            );
+        }
+
+        try {
+            $response = Http::withToken($apiKey)
+                ->timeout((int) config('services.openai.timeout'))
+                ->post((string) config('services.openai.responses_url'), [
+                    'model' => config('services.openai.model'),
+                    'store' => false,
+                    'instructions' => $context['system_instruction'],
+                    'input' => [
+                        [
+                            'role' => 'user',
+                            'content' => [
+                                [
+                                    'type' => 'input_text',
+                                    'text' => $inputText,
+                                ],
+                            ],
+                        ],
+                    ],
+                    'text' => [
+                        'format' => [
+                            'type' => 'json_schema',
+                            'name' => 'reportflow_diagnosis_result',
+                            'strict' => true,
+                            'schema' => $this->diagnosisResultSchema($context['allowed_categories']),
+                        ],
+                    ],
+                ]);
+        } catch (ConnectionException $exception) {
+            throw new RuntimeException(
+                'OpenAI API request failed due to a connection error.',
+                previous: $exception,
+            );
+        }
+
+        if (! $response->successful()) {
+            throw new RuntimeException(
+                "OpenAI API request failed with HTTP status {$response->status()}.",
+            );
+        }
+
+        $responseBody = $response->json();
+
+        if (! is_array($responseBody)) {
+            throw new RuntimeException('OpenAI response had an unexpected shape.');
+        }
+
+        $status = $responseBody['status'] ?? null;
+
+        if ($status === 'incomplete') {
+            throw new RuntimeException('OpenAI response was incomplete.');
+        }
+
+        if ($status !== 'completed') {
+            throw new RuntimeException($this->nonCompletedStatusMessage($responseBody, $status));
+        }
+
+        $output = $responseBody['output'] ?? null;
+
+        if (! is_array($output)) {
+            throw new RuntimeException('OpenAI response had an unexpected shape.');
+        }
+
+        foreach ($output as $outputItem) {
+            if (! is_array($outputItem)) {
+                throw new RuntimeException('OpenAI response had an unexpected shape.');
+            }
+
+            if (($outputItem['type'] ?? null) !== 'message') {
+                continue;
+            }
+
+            $content = $outputItem['content'] ?? null;
+
+            if (! is_array($content)) {
+                throw new RuntimeException('OpenAI response had an unexpected shape.');
+            }
+
+            foreach ($content as $contentItem) {
+                if (! is_array($contentItem)) {
+                    throw new RuntimeException('OpenAI response had an unexpected shape.');
+                }
+
+                if (($contentItem['type'] ?? null) === 'refusal') {
+                    throw new RuntimeException('OpenAI refused the diagnosis request.');
+                }
+
+                if (($contentItem['type'] ?? null) === 'output_text'
+                    && is_string($contentItem['text'] ?? null)) {
+                    return $contentItem['text'];
+                }
+            }
+        }
+
+        throw new RuntimeException('OpenAI response did not contain structured output.');
+    }
+
+    /**
      * Build the diagnostic message for a non-completed Responses API
      * status. Only `status` and `error.code` are included — never
      * `error.message`, since a provider-authored error message is not
@@ -756,6 +920,87 @@ class AiAnalysisClient
                 ],
             ],
             'required' => ['mappings'],
+            'additionalProperties' => false,
+        ];
+    }
+
+    /**
+     * The Structured Output schema for diagnose(): exactly one
+     * primary_diagnosis. No "alternatives" (Phase 4-B v1 deliberately
+     * returns a single diagnosis — see docs/product/DIAGNOSIS_ENGINE.md
+     * "Structured Output"), and no priority/action field of any kind
+     * exists in this schema at all — a stronger guarantee than a prompt
+     * instruction not to produce one, since the API itself cannot return
+     * a field this schema never declares.
+     *
+     * "category_key"'s "enum" is built from this specific request's
+     * $allowedCategories (the Evidence Gate's output — see
+     * BuildDiagnosisEvidencePackageAction), never the full
+     * config/diagnosis_categories.php catalog. $allowedCategories always
+     * contains at least "insufficient_explanatory_evidence" in practice
+     * (see that Action's docblock), but this defensively omits "enum"
+     * entirely if it is ever empty, mirroring
+     * derivedMetricsPlanSchema()'s $availableDimensions handling — never
+     * producing a JSON Schema no response could ever satisfy.
+     *
+     * "evidence_refs"/"missing_evidence" are plain string arrays: no
+     * "enum" is applied to evidence_refs' contents, since a JSON Schema
+     * enum cannot express "any subset of this specific request's supplied
+     * evidence identifiers" (a *set membership per element* constraint,
+     * not a fixed value set with a bounded item count). evidence_refs
+     * does carry "minItems: 1" — confirmed (via a standalone probe
+     * request) to be honored by the OpenAI Responses API in strict mode,
+     * so this is a genuine first line of defense against an empty
+     * evidence_refs, not a documentation-only hint. It is still not
+     * sufficient on its own (a model satisfying "minItems: 1" the cheap
+     * way, e.g. a single empty-string element, was observed during that
+     * same probe), so Laravel post-validation
+     * (NormalizeDiagnosisResultAction) remains the actual enforcement for
+     * both "non-empty" and "every element is a real supplied identifier"
+     * — see that class's docblock and docs/product/DIAGNOSIS_ENGINE.md
+     * "Structured Output != Semantic Correctness".
+     *
+     * @param list<string> $allowedCategories
+     * @return array<string, mixed>
+     */
+    private function diagnosisResultSchema(array $allowedCategories): array
+    {
+        $categoryKey = ['type' => 'string'];
+
+        if ($allowedCategories !== []) {
+            $categoryKey['enum'] = array_values($allowedCategories);
+        }
+
+        return [
+            'type' => 'object',
+            'properties' => [
+                'primary_diagnosis' => [
+                    'type' => 'object',
+                    'properties' => [
+                        'category_key' => $categoryKey,
+                        'self_reported_confidence' => ['type' => 'number'],
+                        'rationale_summary' => ['type' => 'string'],
+                        'evidence_refs' => [
+                            'type' => 'array',
+                            'items' => ['type' => 'string'],
+                            'minItems' => 1,
+                        ],
+                        'missing_evidence' => [
+                            'type' => 'array',
+                            'items' => ['type' => 'string'],
+                        ],
+                    ],
+                    'required' => [
+                        'category_key',
+                        'self_reported_confidence',
+                        'rationale_summary',
+                        'evidence_refs',
+                        'missing_evidence',
+                    ],
+                    'additionalProperties' => false,
+                ],
+            ],
+            'required' => ['primary_diagnosis'],
             'additionalProperties' => false,
         ];
     }

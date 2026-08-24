@@ -754,6 +754,202 @@ class AiAnalysisClientTest extends TestCase
     }
 
     /**
+     * diagnose(): request shape, and that only trigger_fact /
+     * supporting_facts / allowed_categories are sent — never user_prompt,
+     * a Data Profile, or sample_rows. See
+     * docs/product/DIAGNOSIS_ENGINE.md "raw sample_rows禁止" /
+     * "user_prompt禁止".
+     */
+    public function test_diagnose_sends_the_diagnosis_request_and_returns_structured_output(): void
+    {
+        $payload = null;
+        $diagnoseResponse = json_encode([
+            'primary_diagnosis' => [
+                'category_key' => 'insufficient_explanatory_evidence',
+                'self_reported_confidence' => 0.4,
+                'rationale_summary' => 'The evidence does not distinguish a specific cause.',
+                'evidence_refs' => ['trigger:evaluation_fact:123'],
+                'missing_evidence' => ['landing-page-level conversion rate'],
+            ],
+        ], JSON_THROW_ON_ERROR);
+
+        Http::fake(function (Request $request) use (&$payload, $diagnoseResponse) {
+            $payload = json_decode($request->body(), true, flags: JSON_THROW_ON_ERROR);
+
+            return Http::response($this->completedResponse($diagnoseResponse));
+        });
+
+        $result = (new AiAnalysisClient)->diagnose($this->diagnosisContext());
+
+        $this->assertSame($diagnoseResponse, $result);
+        Http::assertSentCount(1);
+        Http::assertSent(function (Request $request): bool {
+            return $request->method() === 'POST'
+                && $request->url() === 'https://api.openai.com/v1/responses'
+                && $request->hasHeader('Authorization', 'Bearer test-openai-key');
+        });
+
+        $this->assertIsArray($payload);
+        $this->assertSame('gpt-5.4-mini', $payload['model']);
+        $this->assertFalse($payload['store']);
+        $this->assertSame($this->diagnosisContext()['system_instruction'], $payload['instructions']);
+
+        $input = json_decode(
+            $payload['input'][0]['content'][0]['text'],
+            true,
+            flags: JSON_THROW_ON_ERROR,
+        );
+
+        $this->assertSame($this->diagnosisContext()['trigger_fact'], $input['trigger_fact']);
+        $this->assertSame($this->diagnosisContext()['supporting_facts'], $input['supporting_facts']);
+        $this->assertSame($this->diagnosisContext()['allowed_categories'], $input['allowed_categories']);
+
+        // Only these 3 top-level keys are sent — no user_prompt, no
+        // Data Profile, no sample_rows.
+        $this->assertSame(['trigger_fact', 'supporting_facts', 'allowed_categories'], array_keys($input));
+
+        $format = $payload['text']['format'];
+        $this->assertSame('json_schema', $format['type']);
+        $this->assertSame('reportflow_diagnosis_result', $format['name']);
+        $this->assertTrue($format['strict']);
+
+        $schema = $format['schema'];
+        $this->assertSame(['primary_diagnosis'], $schema['required']);
+        $this->assertFalse($schema['additionalProperties']);
+
+        $properties = $schema['properties']['primary_diagnosis'];
+        $this->assertSame(
+            ['category_key', 'self_reported_confidence', 'rationale_summary', 'evidence_refs', 'missing_evidence'],
+            $properties['required'],
+        );
+        $this->assertFalse($properties['additionalProperties']);
+        $this->assertArrayNotHasKey('priority', $properties['properties']);
+        $this->assertArrayNotHasKey('action', $properties['properties']);
+        $this->assertArrayNotHasKey('alternatives', $schema['properties']);
+
+        // Evidence-grounding minimum: the schema itself asks for at least
+        // one evidence_ref (a first line of defense — see
+        // diagnosisResultSchema()'s docblock for why Laravel
+        // post-validation remains the actual enforcement).
+        $this->assertSame(1, $properties['properties']['evidence_refs']['minItems']);
+    }
+
+    /**
+     * category_key's "enum" is built dynamically from this specific
+     * request's allowed_categories — never a fixed, hardcoded list.
+     */
+    public function test_diagnose_constrains_category_key_to_this_requests_allowed_categories(): void
+    {
+        $context = $this->diagnosisContext();
+        $context['allowed_categories'] = ['insufficient_explanatory_evidence'];
+
+        $diagnoseResponse = json_encode([
+            'primary_diagnosis' => [
+                'category_key' => 'insufficient_explanatory_evidence',
+                'self_reported_confidence' => 0.5,
+                'rationale_summary' => 'No distinguishing evidence.',
+                'evidence_refs' => [],
+                'missing_evidence' => [],
+            ],
+        ], JSON_THROW_ON_ERROR);
+
+        $payload = null;
+
+        Http::fake(function (Request $request) use (&$payload, $diagnoseResponse) {
+            $payload = json_decode($request->body(), true, flags: JSON_THROW_ON_ERROR);
+
+            return Http::response($this->completedResponse($diagnoseResponse));
+        });
+
+        (new AiAnalysisClient)->diagnose($context);
+
+        $enum = $payload['text']['format']['schema']['properties']['primary_diagnosis']['properties']['category_key']['enum'];
+        $this->assertSame(['insufficient_explanatory_evidence'], $enum);
+    }
+
+    public function test_diagnose_throws_when_the_api_key_is_not_configured(): void
+    {
+        config(['services.openai.key' => null]);
+        Http::fake();
+
+        try {
+            (new AiAnalysisClient)->diagnose($this->diagnosisContext());
+
+            $this->fail('Expected a RuntimeException.');
+        } catch (RuntimeException $exception) {
+            $this->assertSame('OpenAI API key is not configured.', $exception->getMessage());
+        }
+
+        Http::assertNothingSent();
+    }
+
+    public function test_diagnose_throws_for_unsuccessful_http_responses(): void
+    {
+        Http::fake([
+            'https://api.openai.com/v1/responses' => Http::response([], 500),
+        ]);
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('OpenAI API request failed with HTTP status 500.');
+
+        (new AiAnalysisClient)->diagnose($this->diagnosisContext());
+    }
+
+    public function test_diagnose_throws_when_openai_refuses_the_request(): void
+    {
+        Http::fake([
+            'https://api.openai.com/v1/responses' => Http::response([
+                'status' => 'completed',
+                'output' => [[
+                    'type' => 'message',
+                    'content' => [[
+                        'type' => 'refusal',
+                        'refusal' => 'Sensitive request.',
+                    ]],
+                ]],
+            ]),
+        ]);
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('OpenAI refused the diagnosis request.');
+
+        (new AiAnalysisClient)->diagnose($this->diagnosisContext());
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function diagnosisContext(): array
+    {
+        return [
+            'system_instruction' => 'Choose category_key only from allowed_categories.',
+            'trigger_fact' => [
+                'evaluation_fact_id' => 123,
+                'entity_type' => 'channel',
+                'entity_key' => 'Social',
+                'metric_key' => 'conversion_rate',
+                'metric_value' => 0.04,
+                'display_baseline_value' => 0.054,
+                'test_baseline_value' => 0.061,
+                'delta_absolute' => -0.014,
+                'delta_percent' => -0.259259,
+                'direction' => 'below',
+                'evaluation_level' => 'high',
+                'numerator_value' => 200,
+                'denominator_value' => 5000,
+                'control_numerator_value' => 610,
+                'control_denominator_value' => 10000,
+                'z_score' => -5.36,
+            ],
+            'supporting_facts' => [
+                ['metric_key' => 'spend', 'value' => 150000],
+                ['metric_key' => 'revenue', 'value' => 420000],
+            ],
+            'allowed_categories' => ['measurement_consistency_risk', 'insufficient_explanatory_evidence'],
+        ];
+    }
+
+    /**
      * @return array<string, mixed>
      */
     private function mappingContext(): array

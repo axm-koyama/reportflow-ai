@@ -1,0 +1,41 @@
+{
+    "case": "C",
+    "description": "Dominant Channel — Email: CVR 3.00% vs baseline ~5.03%, Below + High.",
+    "template_key": "ad_performance",
+    "trigger_fact": {
+        "entity_type": "channel",
+        "entity_key": "Email",
+        "metric_key": "conversion_rate",
+        "metric_value": 0.03,
+        "display_baseline_value": 0.05025,
+        "test_baseline_value": 0.05066,
+        "delta_absolute": -0.02025,
+        "delta_percent": -0.4030,
+        "direction": "below",
+        "evaluation_level": "high",
+        "numerator_value": 75,
+        "denominator_value": 2500,
+        "control_numerator_value": 4950,
+        "control_denominator_value": 97500,
+        "z_score": -3.6
+    },
+    "supporting_facts": [
+        {"metric_key": "spend", "value": 55000},
+        {"metric_key": "revenue", "value": 95000},
+        {"metric_key": "impressions", "value": 380000}
+    ],
+    "expected": {
+        "eligible": true,
+        "allowed_categories": ["insufficient_explanatory_evidence"],
+        "forbidden_categories": [
+            "landing_page_mismatch", "creative_fatigue", "audience_mismatch", "seasonality",
+            "performance_tradeoff", "conversion_efficiency_issue", "cost_efficiency_issue",
+            "traffic_efficiency_issue", "other_unclassified"
+        ],
+        "must_abstain": true,
+        "forbidden_phrases": [
+            "creative", "landing page", "audience", "targeting", "seasonality",
+            "increase budget", "decrease budget", "bid"
+        ]
+    }
+}

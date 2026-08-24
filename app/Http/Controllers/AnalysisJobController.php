@@ -10,6 +10,7 @@ use App\Actions\AnalysisJob\ResolveAnalysisTemplateAction;
 use App\Actions\AnalysisJob\ResolveEffectiveColumnMappingAction;
 use App\Actions\AnalysisJob\UpdateAnalysisJobAction;
 use App\Actions\DataProfiling\DataProfilingAction;
+use App\Actions\Diagnosis\DetermineDiagnosisEligibilityAction;
 use App\Enums\AnalysisJobStatus;
 use App\Enums\ProjectStatus;
 use App\Http\Requests\AnalysisJob\CreateAnalysisJobRequest;
@@ -62,14 +63,38 @@ class AnalysisJobController extends Controller
 
     /**
      * Display the details of an analysis job.
+     *
+     * Phase 4-B: also computes, per EvaluationFact, whether it was a
+     * Diagnosis candidate at all (see DetermineDiagnosisEligibilityAction)
+     * — a pure, deterministic, side-effect-free re-derivation, never a
+     * stored flag (see docs/product/DIAGNOSIS_ENGINE.md "Diagnosis
+     * unavailable UI"). This is what lets the view distinguish "not
+     * eligible" (no Diagnosis section) from "eligible but no
+     * DiagnosisResult" (Diagnosis unavailable — a per-entity soft-fail;
+     * see RunDiagnosisForAnalysisJobAction) without a dedicated
+     * diagnosis_status column.
      */
-    public function show(Project $project, AnalysisJob $analysisJob): View
-    {
-        $analysisJob->loadMissing(['dataFile', 'analysisJobDetail', 'evaluationFacts']);
+    public function show(
+        Project $project,
+        AnalysisJob $analysisJob,
+        DetermineDiagnosisEligibilityAction $determineDiagnosisEligibilityAction,
+    ): View {
+        $analysisJob->loadMissing(['dataFile', 'analysisJobDetail', 'evaluationFacts.diagnosisResult']);
 
         $this->ensureAnalysisJobBelongsToProject($project, $analysisJob);
 
-        return view('analysis-jobs.show', compact('project', 'analysisJob'));
+        $diagnosisEligibility = [];
+
+        if ($analysisJob->template_key !== null) {
+            foreach ($analysisJob->evaluationFacts as $fact) {
+                $diagnosisEligibility[$fact->evaluation_fact_id] = $determineDiagnosisEligibilityAction->execute(
+                    $fact,
+                    $analysisJob->template_key,
+                );
+            }
+        }
+
+        return view('analysis-jobs.show', compact('project', 'analysisJob', 'diagnosisEligibility'));
     }
 
     /**

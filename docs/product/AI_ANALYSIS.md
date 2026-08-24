@@ -604,6 +604,15 @@ Base recommendations on observed data where possible.
 System Instructionの具体的な文面は
 AI Provider実装時に別途定義する。
 
+> **Phase 4-B追記**: 実装された具体的な文面は
+> `BuildAnalysisContextAction::systemInstruction()`(22 Rules)。さらに
+> Decision-enabled AnalysisJob(`template_key`が
+> `config/evaluation_metrics.php`にエントリを持つ)については、causal
+> diagnosis / priority / action recommendationを禁止する追加Rule
+> (23-28)が付与され、Final Analyzeは記述的分析(Descriptive Analysis)
+> のみを担当するよう責務が縮小されている。詳細は
+> docs/product/DIAGNOSIS_ENGINE.md参照。
+
 ---
 
 ### 15.2 User Prompt

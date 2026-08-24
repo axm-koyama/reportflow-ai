@@ -857,6 +857,24 @@ NormalizeAnalysisResultAction
 > exception inside Evaluation is logged and the pipeline continues to
 > Analyze/`markCompleted()` rather than failing the AnalysisJob. See
 > docs/product/EVALUATION_ENGINE.md.
+>
+> **Phase 4-B addition**: `ExecuteAnalysisJobAction` now also calls
+> `RunDiagnosisForAnalysisJobAction` (Controlled Diagnosis) right after
+> `AiAnalysisClient::analyze()`/`NormalizeAnalysisResultAction` and before
+> `markCompleted()`. This adds **0 to N** AI calls, where N is the number
+> of Diagnosis-eligible EvaluationFacts this attempt produced (0 for Free
+> Analysis, for a Template without a `config/evaluation_metrics.php`
+> entry, or whenever every EvaluationFact is favorable/low/
+> insufficient_data) — never a fixed +1. Each eligible EvaluationFact's
+> Diagnosis attempt is independently soft-failed (per-entity, never
+> propagated to Laravel Queue), so one technical failure never prevents
+> another eligible fact from being diagnosed, and never fails the
+> AnalysisJob. `BuildAnalysisContextAction`'s System Instruction also
+> gains an additional, purely additive rule block (Rules 23-28) whenever
+> this AnalysisJob is "Decision-enabled" (`template_key` has a
+> `config/evaluation_metrics.php` entry) — restricting Final Analyze to
+> descriptive analysis only (no causal diagnosis, no priority, no
+> action recommendation). See docs/product/DIAGNOSIS_ENGINE.md.
 
 ### CreateAnalysisJobAction
 

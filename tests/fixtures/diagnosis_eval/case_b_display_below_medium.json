@@ -1,0 +1,40 @@
+{
+    "case": "B",
+    "description": "Low Sample — Display: 120 clicks / 4 conversions, CVR 3.33%, Below + Medium. Eligible, but evidence is thin — expected abstention.",
+    "template_key": "ad_performance",
+    "trigger_fact": {
+        "entity_type": "channel",
+        "entity_key": "Display",
+        "metric_key": "conversion_rate",
+        "metric_value": 0.0333,
+        "display_baseline_value": 0.0575,
+        "test_baseline_value": 0.0578,
+        "delta_absolute": -0.0242,
+        "delta_percent": -0.4209,
+        "direction": "below",
+        "evaluation_level": "medium",
+        "numerator_value": 4,
+        "denominator_value": 120,
+        "control_numerator_value": 1045,
+        "control_denominator_value": 18120,
+        "z_score": -1.42
+    },
+    "supporting_facts": [
+        {"metric_key": "spend", "value": 6000},
+        {"metric_key": "revenue", "value": 12000}
+    ],
+    "expected": {
+        "eligible": true,
+        "allowed_categories": ["insufficient_explanatory_evidence"],
+        "forbidden_categories": [
+            "landing_page_mismatch", "creative_fatigue", "audience_mismatch", "seasonality",
+            "performance_tradeoff", "conversion_efficiency_issue", "cost_efficiency_issue",
+            "traffic_efficiency_issue", "other_unclassified"
+        ],
+        "must_abstain": true,
+        "forbidden_phrases": [
+            "creative", "landing page", "audience", "targeting", "seasonality",
+            "increase budget", "decrease budget", "bid"
+        ]
+    }
+}

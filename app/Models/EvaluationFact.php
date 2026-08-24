@@ -8,6 +8,7 @@ use Database\Factories\EvaluationFactFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Support\Carbon;
 
 /**
@@ -50,6 +51,7 @@ use Illuminate\Support\Carbon;
  * @property Carbon|null $created_at
  * @property Carbon|null $updated_at
  * @property-read AnalysisJob $analysisJob
+ * @property-read DiagnosisResult|null $diagnosisResult
  */
 class EvaluationFact extends Model
 {
@@ -120,5 +122,20 @@ class EvaluationFact extends Model
     public function analysisJob(): BelongsTo
     {
         return $this->belongsTo(AnalysisJob::class, 'analysis_job_id', 'analysis_job_id');
+    }
+
+    /**
+     * Get the Phase 4-B Diagnosis Result produced for this evaluation
+     * fact, if any (not every EvaluationFact is Diagnosis-eligible — see
+     * DetermineDiagnosisEligibilityAction — and an eligible one may still
+     * have none if Diagnosis technically failed — see
+     * docs/product/DIAGNOSIS_ENGINE.md "per-entity soft-fail"). Phase 4-B
+     * v1 produces at most one Diagnosis per EvaluationFact.
+     *
+     * @return HasOne<DiagnosisResult, $this>
+     */
+    public function diagnosisResult(): HasOne
+    {
+        return $this->hasOne(DiagnosisResult::class, 'evaluation_fact_id', 'evaluation_fact_id');
     }
 }

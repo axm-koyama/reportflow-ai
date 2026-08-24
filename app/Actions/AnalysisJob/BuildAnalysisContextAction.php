@@ -41,6 +41,14 @@ namespace App\Actions\AnalysisJob;
  * Metrics, the Derived Metrics, the Analysis Template, or the Column
  * Mapping (see AI_CONTEXT.md §23/§24 — all are treated as already valid
  * by the time they reach this action).
+ *
+ * Phase 4-B addition: execute()'s $decisionEnabled flag appends a
+ * descriptive-analysis-only instruction block (Rules 23-28) for
+ * AnalysisJobs whose template_key has a config/evaluation_metrics.php
+ * entry — see docs/product/DIAGNOSIS_ENGINE.md "Final Analyze最終責務".
+ * This action still never reads EvaluationFact or DiagnosisResult data
+ * itself; ExecuteAnalysisJobAction computes $decisionEnabled from
+ * template_key alone before calling execute().
  */
 class BuildAnalysisContextAction
 {
@@ -53,6 +61,15 @@ class BuildAnalysisContextAction
      * @param array<string, mixed> $derivedMetrics the CalculateDerivedMetricsAction output for the same AnalysisJob
      * @param array{name: string, instruction: string, recommended_derived_metrics: list<array<string, mixed>>}|null $analysisTemplate the Template resolved by ResolveAnalysisTemplateAction, or null for free-form analysis
      * @param array<string, string> $columnMapping semantic field => real column name, resolved by ResolveAnalysisTemplateAction ([] for free-form analysis)
+     * @param bool $decisionEnabled Phase 4-B: true when this AnalysisJob's
+     *        template_key has a config/evaluation_metrics.php entry (see
+     *        docs/product/DIAGNOSIS_ENGINE.md "Decision-enabled Analysis
+     *        の定義") — appends the Decision-enabled instruction block
+     *        (Rules 23-28) that restricts Final Analyze to descriptive
+     *        analysis only. Always false for Free Analysis and for a
+     *        Template without an evaluation_metrics.php entry (e.g.
+     *        sales_analysis today), leaving their System Instruction
+     *        byte-for-byte unchanged from before Phase 4-B.
      * @return array<string, mixed>
      */
     public function execute(
@@ -62,9 +79,10 @@ class BuildAnalysisContextAction
         array $derivedMetrics,
         ?array $analysisTemplate = null,
         array $columnMapping = [],
+        bool $decisionEnabled = false,
     ): array {
         return [
-            'system_instruction' => $this->systemInstruction(),
+            'system_instruction' => $this->systemInstruction($decisionEnabled),
             'user_prompt' => $prompt,
             'data_profile' => $dataProfile,
             'aggregated_metrics' => $aggregatedMetrics,
@@ -78,11 +96,21 @@ class BuildAnalysisContextAction
     /**
      * The V1 System Instruction. See docs/product/AI_CONTEXT.md §8.
      *
+     * When $decisionEnabled is true (Phase 4-B, see execute()'s
+     * docblock), Rules 23-28 are appended verbatim after Rule 22 — Rules
+     * 1-22 are never edited or reordered for this case, only added to.
+     * This keeps a Decision-enabled AnalysisJob's System Instruction a
+     * strict superset of the pre-Phase-4-B text, so every existing
+     * assertion against Rules 1-22's exact wording
+     * (BuildAnalysisContextActionTest) stays valid unchanged. See
+     * docs/product/DIAGNOSIS_ENGINE.md "Final Analyze System Instruction
+     * 変更案".
+     *
      * @return string
      */
-    private function systemInstruction(): string
+    private function systemInstruction(bool $decisionEnabled): string
     {
-        return <<<'TEXT'
+        $instruction = <<<'TEXT'
             You are a professional business data analyst.
 
             Analyze the supplied business data profile according to the user's request.
@@ -162,6 +190,35 @@ class BuildAnalysisContextAction
             22. Do not assume a semantic field is present in the data just because
             analysis_template mentions it. Only fields that are keys in
             column_mapping were actually found in this dataset.
+            TEXT;
+
+        if (! $decisionEnabled) {
+            return $instruction;
+        }
+
+        return $instruction."\n\n".<<<'TEXT'
+            23. This analysis is Decision-enabled. A separate deterministic
+            Evaluation layer and a dedicated Diagnosis layer handle
+            evaluation, diagnosis, priority, and action responsibilities for
+            this data.
+
+            24. Do not diagnose causes. Do not state or imply why a metric
+            moved.
+
+            25. Do not assign priority such as high, medium, or low.
+
+            26. Do not recommend operational actions, including:
+            - budget increase or decrease
+            - targeting changes
+            - creative changes
+            - bid changes
+            - landing-page changes
+
+            27. "recommendations" must be an empty array. Express any
+            noteworthy observation as a descriptive insight instead.
+
+            28. Restrict your output to descriptive analysis: what happened,
+            not why it happened, and not what should be done.
             TEXT;
     }
 

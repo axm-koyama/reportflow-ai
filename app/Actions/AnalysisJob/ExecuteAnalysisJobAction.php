@@ -6,6 +6,7 @@ namespace App\Actions\AnalysisJob;
 
 use App\Actions\DataProfiling\DataProfilingAction;
 use App\Actions\DataProfiling\MetricAggregationAction;
+use App\Actions\Diagnosis\RunDiagnosisForAnalysisJobAction;
 use App\Actions\Evaluation\EvaluateAnalysisJobAction;
 use App\AI\AiAnalysisClient;
 use App\Enums\AnalysisJobStatus;
@@ -47,9 +48,16 @@ use Throwable;
  *                                    any EvaluationFact rows a previous successful attempt left
  *                                    behind are cleared via clearForAnalysisJob() so this attempt
  *                                    never leaves stale facts behind while continuing to Analyze)
- *   -> BuildAnalysisContextAction   (prompt + Data Profile + Aggregated Metrics + Derived Metrics [+ analysisTemplate/columnMapping] -> AI Context)
+ *   -> BuildAnalysisContextAction   (prompt + Data Profile + Aggregated Metrics + Derived Metrics [+ analysisTemplate/columnMapping] -> AI Context;
+ *                                    Phase 4-B: $decisionEnabled appends the descriptive-only instruction block — see below)
  *   -> AiAnalysisClient::analyze()  (AI Context -> raw structured output) [AI call]
  *   -> NormalizeAnalysisResultAction (raw output -> canonical result)
+ *   -> RunDiagnosisForAnalysisJobAction (Phase 4-B: EvaluationFact rows -> at most one
+ *                                    DiagnosisResult per eligible fact; [0..N AI calls, N = eligible
+ *                                    fact count]; soft-fails per EvaluationFact internally and, for a
+ *                                    genuine orchestration-level failure, at this call site too — see
+ *                                    below and docs/product/DIAGNOSIS_ENGINE.md. Runs before
+ *                                    markCompleted(), never after)
  *   -> markCompleted()
  *
  * EvaluateAnalysisJobAction never changes the AI call count above (it
@@ -71,15 +79,24 @@ use Throwable;
  * skipped outright, not merely passed empty values, so free-form analysis
  * is byte-for-byte the pre-Template code path, and can never reach
  * AwaitingMappingConfirmation. A Template-based AnalysisJob normally makes
- * 3 AI calls on a successful execution path: Column Mapping, Planning, and
- * Analyze. Column Mapping is called at most once across the AnalysisJob's
- * *entire* lifetime once column_mapping has been persisted, regardless of
- * whether it went through Mapping confirmation or not — a confirmed
- * effective_column_mapping (or even just a persisted column_mapping; see
- * "retry recovery" below) means Mapping AI is never called again. Planning
- * and Analyze, however, are not similarly capped: a technical failure that
- * triggers a Laravel Queue retry redoes Planning and/or Analyze from
- * scratch (see below), so the lifetime total can exceed 3 AI calls.
+ * 3 AI calls on a successful execution path before Phase 4-B: Column
+ * Mapping, Planning, and Analyze. Phase 4-B adds Diagnosis on top of that
+ * baseline — not a fixed +1, but +1 per Diagnosis-eligible EvaluationFact
+ * (0 for a Template without any config/evaluation_metrics.php entry, and
+ * 0 whenever every EvaluationFact is insufficient_data/low/favorable —
+ * see docs/product/DIAGNOSIS_ENGINE.md "AI call count"). Column Mapping is
+ * called at most once across the AnalysisJob's *entire* lifetime once
+ * column_mapping has been persisted, regardless of whether it went through
+ * Mapping confirmation or not — a confirmed effective_column_mapping (or
+ * even just a persisted column_mapping; see "retry recovery" below) means
+ * Mapping AI is never called again. Planning and Analyze, however, are not
+ * similarly capped: a technical failure that triggers a Laravel Queue
+ * retry redoes Planning and/or Analyze from scratch (see below), so the
+ * lifetime total can exceed 3 (+ Diagnosis) AI calls. Diagnosis itself
+ * never triggers a Queue retry on its own account (see
+ * RunDiagnosisForAnalysisJobAction's docblock) — only a Queue retry
+ * triggered by *something else* (e.g. Planning or Analyze failing) redoes
+ * Diagnosis, as a side effect of redoing the whole attempt.
  * CalculateDerivedMetricsAction and ValidateColumnMappingAction never call
  * the AI — see docs/product/DERIVED_METRICS.md and
  * docs/product/ANALYSIS_TEMPLATE_MODULE.md.
@@ -151,6 +168,7 @@ class ExecuteAnalysisJobAction
         private readonly BuildAnalysisContextAction $buildAnalysisContextAction,
         private readonly AiAnalysisClient $aiAnalysisClient,
         private readonly NormalizeAnalysisResultAction $normalizeAnalysisResultAction,
+        private readonly RunDiagnosisForAnalysisJobAction $runDiagnosisForAnalysisJobAction,
     ) {}
 
     /**
@@ -374,6 +392,15 @@ class ExecuteAnalysisJobAction
             }
         }
 
+        // Phase 4-B: "Decision-enabled" iff this Template has a
+        // config/evaluation_metrics.php entry — never a per-template_key
+        // hardcode. See docs/product/DIAGNOSIS_ENGINE.md "Decision-enabled
+        // Analysisの定義". Free Analysis (template_key === null) and a
+        // Template without an entry (e.g. sales_analysis today) are both
+        // false, leaving their Final Analyze System Instruction unchanged.
+        $decisionEnabled = $analysisJob->template_key !== null
+            && array_key_exists($analysisJob->template_key, config('evaluation_metrics', []));
+
         $context = $this->buildAnalysisContextAction->execute(
             $prompt,
             $dataProfile,
@@ -381,11 +408,41 @@ class ExecuteAnalysisJobAction
             $derivedMetrics,
             $analysisTemplate,
             $columnMapping,
+            $decisionEnabled,
         );
 
         $rawResponse = $this->aiAnalysisClient->analyze($context);
 
         $result = $this->normalizeAnalysisResultAction->execute($rawResponse);
+
+        // Phase 4-B: Controlled Diagnosis. Runs after Final Analyze,
+        // before markCompleted() — never after (see
+        // docs/product/DIAGNOSIS_ENGINE.md "Pipeline最終順序": Diagnosis is
+        // part of what "Completed" means, not something that appears
+        // later). Uses the same in-memory $aggregatedMetrics already
+        // computed above, exactly like EvaluateAnalysisJobAction above.
+        // Soft-fail by design, mirroring Evaluation's own soft-fail: a
+        // technical failure here must never turn an otherwise-successful
+        // AnalysisJob into a Failed one. Per-EvaluationFact failures are
+        // already caught inside RunDiagnosisForAnalysisJobAction itself
+        // (see that class's docblock); this outer catch only guards
+        // against a genuine orchestration-level failure (e.g. the
+        // DiagnosisResult cleanup delete or the EvaluationFact query
+        // itself failing). Unlike Evaluation, no separate "clear stale
+        // rows" call is needed here — RunDiagnosisForAnalysisJobAction
+        // deletes existing DiagnosisResult rows for this AnalysisJob
+        // *before* doing any other work, so no stale row can survive
+        // regardless of where a failure strikes afterward.
+        try {
+            $this->runDiagnosisForAnalysisJobAction->execute($analysisJob, $aggregatedMetrics);
+        } catch (Throwable $diagnosisException) {
+            Log::error('RunDiagnosisForAnalysisJobAction: technical failure — continuing the analysis pipeline without Diagnosis.', [
+                'analysis_job_id' => $analysisJob->analysis_job_id,
+                'template_key' => $analysisJob->template_key,
+                'exception_class' => $diagnosisException::class,
+                'exception_message' => $diagnosisException->getMessage(),
+            ]);
+        }
 
         $this->updateAnalysisJobAction->markCompleted($analysisJob, $rawResponse, $result);
     }

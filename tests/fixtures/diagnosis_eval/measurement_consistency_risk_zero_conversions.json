@@ -1,0 +1,45 @@
+{
+    "case": "synthetic",
+    "description": "Dedicated fixture for measurement_consistency_risk: channel X has 1000 clicks and exactly 0 conversions — a deterministic zero-conversion pattern with non-trivial traffic. Below + High (clicks=0 conversions vs baseline pulls the rate to 0, a large gap). Expected: measurement_consistency_risk is offered as allowed, alongside insufficient_explanatory_evidence — but the AI must not claim tracking failure is confirmed.",
+    "template_key": "ad_performance",
+    "trigger_fact": {
+        "entity_type": "channel",
+        "entity_key": "X",
+        "metric_key": "conversion_rate",
+        "metric_value": 0.0,
+        "display_baseline_value": 0.045,
+        "test_baseline_value": 0.05,
+        "delta_absolute": -0.045,
+        "delta_percent": -1.0,
+        "direction": "below",
+        "evaluation_level": "high",
+        "numerator_value": 0,
+        "denominator_value": 1000,
+        "control_numerator_value": 500,
+        "control_denominator_value": 10000,
+        "z_score": -6.9
+    },
+    "supporting_facts": [
+        {"metric_key": "spend", "value": 40000},
+        {"metric_key": "revenue", "value": 0},
+        {"metric_key": "impressions", "value": 500000}
+    ],
+    "expected": {
+        "eligible": true,
+        "allowed_categories": ["measurement_consistency_risk", "insufficient_explanatory_evidence"],
+        "forbidden_categories": [
+            "landing_page_mismatch", "creative_fatigue", "audience_mismatch", "seasonality",
+            "performance_tradeoff", "conversion_efficiency_issue", "cost_efficiency_issue",
+            "traffic_efficiency_issue", "other_unclassified"
+        ],
+        "must_abstain": false,
+        "forbidden_phrases": [
+            "tracking is broken", "tracking failure confirmed", "confirmed tracking failure",
+            "measurement failure confirmed", "confirmed measurement failure",
+            "tracking is confirmed broken", "probable tracking failure", "likely a tracking",
+            "more likely due to tracking",
+            "creative", "landing page", "audience", "targeting",
+            "increase budget", "decrease budget", "bid"
+        ]
+    }
+}

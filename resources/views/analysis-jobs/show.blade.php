@@ -105,13 +105,23 @@
                 @if ($insight['evidence'] ?? null)<p class="hint">Evidence: {{ $insight['evidence'] }}</p>@endif
             @empty<p>None</p>@endforelse
         </section>
-        <section class="card">
-            <h2>Recommendations</h2>
-            @forelse ($result['recommendations'] ?? [] as $recommendation)
-                <h3>{{ $recommendation['title'] }}</h3><p>{{ $recommendation['description'] }}</p>
-                @if ($recommendation['priority'] ?? null)<p class="hint">Priority: {{ $recommendation['priority'] }}</p>@endif
-            @empty<p>None</p>@endforelse
-        </section>
+        {{-- Phase 4-B: an empty recommendations array (the expected new
+             shape for a Decision-enabled AnalysisJob — see
+             docs/product/DIAGNOSIS_ENGINE.md "Final Analyze最終責務") hides
+             this section entirely rather than showing an empty "None"
+             card. A past AnalysisJob whose stored result still has
+             recommendations (Free Analysis, sales_analysis, or any
+             AnalysisJob completed before Phase 4-B) keeps showing them
+             exactly as before — full backward compatibility. --}}
+        @if (! empty($result['recommendations']))
+            <section class="card">
+                <h2>Recommendations</h2>
+                @foreach ($result['recommendations'] as $recommendation)
+                    <h3>{{ $recommendation['title'] }}</h3><p>{{ $recommendation['description'] }}</p>
+                    @if ($recommendation['priority'] ?? null)<p class="hint">Priority: {{ $recommendation['priority'] }}</p>@endif
+                @endforeach
+            </section>
+        @endif
 
         @if ($analysisJob->evaluationFacts->isNotEmpty())
             {{-- Phase 4-A: Deterministic Evaluation Engine. See docs/product/EVALUATION_ENGINE.md.
@@ -147,6 +157,44 @@
                     </tbody>
                 </table>
             </section>
+
+            {{-- Phase 4-B: Controlled Diagnosis. See docs/product/DIAGNOSIS_ENGINE.md.
+                 Only EvaluationFacts DetermineDiagnosisEligibilityAction judged
+                 eligible (see $diagnosisEligibility, computed by the
+                 Controller) get a row here — a fact that was never a
+                 Diagnosis candidate (favorable, low, insufficient_data)
+                 shows nothing, exactly like it never showed a
+                 Recommendations-style entry before Phase 4-B.
+                 self_reported_confidence is deliberately never rendered
+                 (uncalibrated — see DIAGNOSIS_ENGINE.md "self_reported_confidence"). --}}
+            @php($eligibleFacts = $analysisJob->evaluationFacts->filter(fn ($fact) => $diagnosisEligibility[$fact->evaluation_fact_id] ?? false))
+            @if ($eligibleFacts->isNotEmpty())
+                {{-- "計測整合性の確認候補" (not "計測異常"/"計測問題"/"トラッキング異常") —
+                     deliberately reads as one unconfirmed candidate worth checking, never as
+                     a confirmed finding. See DIAGNOSIS_ENGINE.md "measurement_consistency_risk". --}}
+                @php($diagnosisCategoryLabels = [
+                    'measurement_consistency_risk' => '計測整合性の確認候補',
+                    'insufficient_explanatory_evidence' => '十分な根拠がありません',
+                ])
+                <section class="card">
+                    <h2>原因の仮説</h2>
+                    @foreach ($eligibleFacts as $fact)
+                        <h3>{{ $fact->entity_key }}</h3>
+                        @if ($fact->diagnosisResult)
+                            <p>{{ $diagnosisCategoryLabels[$fact->diagnosisResult->category_key] ?? $fact->diagnosisResult->category_key }}</p>
+                            <p>{{ $fact->diagnosisResult->rationale_summary }}</p>
+                            @if (! empty($fact->diagnosisResult->missing_evidence_json))
+                                <p class="hint">
+                                    診断の精度を上げるために必要な情報:
+                                    {{ implode(' / ', $fact->diagnosisResult->missing_evidence_json) }}
+                                </p>
+                            @endif
+                        @else
+                            <p class="hint">診断結果を取得できませんでした</p>
+                        @endif
+                    @endforeach
+                </section>
+            @endif
         @endif
     @endif
 @endsection

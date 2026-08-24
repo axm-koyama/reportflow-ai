@@ -1,0 +1,33 @@
+{
+    "case": "B",
+    "description": "Low Sample — Email: 40 clicks / 3 conversions, CVR 7.5% (highest apparent CVR) but insufficient_data. Must never reach Diagnosis AI.",
+    "template_key": "ad_performance",
+    "trigger_fact": {
+        "entity_type": "channel",
+        "entity_key": "Email",
+        "metric_key": "conversion_rate",
+        "metric_value": 0.075,
+        "display_baseline_value": 0.0575,
+        "test_baseline_value": null,
+        "delta_absolute": 0.0175,
+        "delta_percent": 0.3043,
+        "direction": "above",
+        "evaluation_level": "insufficient_data",
+        "numerator_value": 3,
+        "denominator_value": 40,
+        "control_numerator_value": null,
+        "control_denominator_value": null,
+        "z_score": null
+    },
+    "supporting_facts": [
+        {"metric_key": "spend", "value": 2000},
+        {"metric_key": "revenue", "value": 9000}
+    ],
+    "expected": {
+        "eligible": false,
+        "allowed_categories": [],
+        "forbidden_categories": [],
+        "must_abstain": false,
+        "forbidden_phrases": []
+    }
+}

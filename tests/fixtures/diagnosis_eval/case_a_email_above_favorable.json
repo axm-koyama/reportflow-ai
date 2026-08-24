@@ -1,0 +1,34 @@
+{
+    "case": "A",
+    "description": "Balanced Traffic — Email: CVR 5.50% vs baseline 4.90%, Above + High (favorable — v1 out of Diagnosis scope).",
+    "template_key": "ad_performance",
+    "trigger_fact": {
+        "entity_type": "channel",
+        "entity_key": "Email",
+        "metric_key": "conversion_rate",
+        "metric_value": 0.055,
+        "display_baseline_value": 0.049,
+        "test_baseline_value": 0.0475,
+        "delta_absolute": 0.006,
+        "delta_percent": 0.1224,
+        "direction": "above",
+        "evaluation_level": "high",
+        "numerator_value": 660,
+        "denominator_value": 12000,
+        "control_numerator_value": 2280,
+        "control_denominator_value": 48000,
+        "z_score": 2.55
+    },
+    "supporting_facts": [
+        {"metric_key": "spend", "value": 130000},
+        {"metric_key": "revenue", "value": 340000},
+        {"metric_key": "impressions", "value": 800000}
+    ],
+    "expected": {
+        "eligible": false,
+        "allowed_categories": [],
+        "forbidden_categories": [],
+        "must_abstain": false,
+        "forbidden_phrases": []
+    }
+}

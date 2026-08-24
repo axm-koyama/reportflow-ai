@@ -461,6 +461,54 @@ class BuildAnalysisContextActionTest extends TestCase
     }
 
     /**
+     * Phase 4-B: $decisionEnabled defaults to false, so every existing
+     * assertion above (Rules 1-22's exact wording) keeps holding
+     * unchanged — this is the byte-for-byte "never touched" guarantee
+     * BuildAnalysisContextAction's docblock describes.
+     */
+    public function test_decision_enabled_defaults_to_false_and_never_adds_the_phase_4b_block(): void
+    {
+        $instruction = $this->buildContext()['system_instruction'];
+
+        $this->assertStringNotContainsString('Decision-enabled', $instruction);
+        $this->assertStringNotContainsString('Do not diagnose causes', $instruction);
+    }
+
+    /**
+     * Phase 4-B: $decisionEnabled = true appends Rules 23-28 verbatim
+     * after Rule 22, without altering it. See
+     * docs/product/DIAGNOSIS_ENGINE.md "Final Analyze System Instruction
+     * 変更案".
+     */
+    public function test_decision_enabled_true_appends_the_phase_4b_instruction_block(): void
+    {
+        $instruction = (new BuildAnalysisContextAction)->execute(
+            '分析してください',
+            $this->sampleDataProfile(),
+            $this->sampleAggregatedMetrics(),
+            $this->sampleDerivedMetrics(),
+            null,
+            [],
+            true,
+        )['system_instruction'];
+
+        // Rule 22 (the last pre-Phase-4-B rule) still ends exactly where
+        // it always did — Rules 1-22 are appended to, never rewritten.
+        $this->assertStringContainsString(
+            "22. Do not assume a semantic field is present in the data just because\nanalysis_template mentions it. Only fields that are keys in\ncolumn_mapping were actually found in this dataset.",
+            $instruction,
+        );
+
+        $this->assertStringContainsString('This analysis is Decision-enabled', $instruction);
+        $this->assertStringContainsString('Do not diagnose causes', $instruction);
+        $this->assertStringContainsString('Do not assign priority', $instruction);
+        $this->assertStringContainsString('budget increase or decrease', $instruction);
+        $this->assertStringContainsString('"recommendations" must be an empty array', $instruction);
+        $this->assertStringContainsString('Restrict your output to descriptive analysis', $instruction);
+        $this->assertStringContainsString('not why it happened', $instruction);
+    }
+
+    /**
      * @return array<string, mixed>
      */
     private function outputSchema(): array
