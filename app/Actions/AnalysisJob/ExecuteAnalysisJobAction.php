@@ -6,11 +6,13 @@ namespace App\Actions\AnalysisJob;
 
 use App\Actions\DataProfiling\DataProfilingAction;
 use App\Actions\DataProfiling\MetricAggregationAction;
+use App\Actions\Evaluation\EvaluateAnalysisJobAction;
 use App\AI\AiAnalysisClient;
 use App\Enums\AnalysisJobStatus;
 use App\Models\AnalysisJob;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Support\Facades\Log;
+use Throwable;
 
 /**
  * Executes a single attempt of one AnalysisJob run.
@@ -38,10 +40,30 @@ use Illuminate\Support\Facades\Log;
  *                    No            -> persist effective_column_mapping (source: "ai" for every field)
  *   -> PlanDerivedMetricsAction     (prompt + Aggregated Metrics [+ analysisTemplate/columnMapping] -> proposed CalculationDefinitions) [AI call]
  *   -> CalculateDerivedMetricsAction (CalculationDefinitions + Aggregated Metrics -> Derived Metrics)
+ *   -> EvaluateAnalysisJobAction    (Phase 4-A: Aggregated Metrics + effective_column_mapping
+ *                                    + config/evaluation_metrics.php -> persisted EvaluationFact rows;
+ *                                    zero AI calls, soft-fails on technical exception — see below
+ *                                    and docs/product/EVALUATION_ENGINE.md. On that soft-fail path,
+ *                                    any EvaluationFact rows a previous successful attempt left
+ *                                    behind are cleared via clearForAnalysisJob() so this attempt
+ *                                    never leaves stale facts behind while continuing to Analyze)
  *   -> BuildAnalysisContextAction   (prompt + Data Profile + Aggregated Metrics + Derived Metrics [+ analysisTemplate/columnMapping] -> AI Context)
  *   -> AiAnalysisClient::analyze()  (AI Context -> raw structured output) [AI call]
  *   -> NormalizeAnalysisResultAction (raw output -> canonical result)
  *   -> markCompleted()
+ *
+ * EvaluateAnalysisJobAction never changes the AI call count above (it
+ * makes none of its own) and never feeds EvaluationFact data into
+ * BuildAnalysisContextAction / the final Analyze call — Phase 4-A
+ * evaluates independently of, and does not yet influence, the existing
+ * AI analysis (see docs/product/EVALUATION_ENGINE.md "Existing Final AI
+ * Analysisとの関係"). It runs for every Template AnalysisJob whose
+ * Effective Mapping is confirmed at this point in this same attempt
+ * (auto-confident or resumed-after-manual-confirmation — both paths
+ * converge before Planning, see above); it never runs for free-form
+ * analysis (template_key === null), whose Template-related block
+ * (including this step) is skipped outright, same as everything else in
+ * that block.
  *
  * A free-form AnalysisJob (template_key === null) makes exactly the same
  * two AI calls as before Phase 3-A (PlanDerivedMetricsAction, then
@@ -125,6 +147,7 @@ class ExecuteAnalysisJobAction
         private readonly FilterRecommendedDerivedMetricsAction $filterRecommendedDerivedMetricsAction,
         private readonly PlanDerivedMetricsAction $planDerivedMetricsAction,
         private readonly CalculateDerivedMetricsAction $calculateDerivedMetricsAction,
+        private readonly EvaluateAnalysisJobAction $evaluateAnalysisJobAction,
         private readonly BuildAnalysisContextAction $buildAnalysisContextAction,
         private readonly AiAnalysisClient $aiAnalysisClient,
         private readonly NormalizeAnalysisResultAction $normalizeAnalysisResultAction,
@@ -295,6 +318,61 @@ class ExecuteAnalysisJobAction
         );
 
         $derivedMetrics = $this->calculateDerivedMetricsAction->execute($proposedDefinitions, $aggregatedMetrics);
+
+        // Phase 4-A: Deterministic Evaluation Engine. Runs after Derived
+        // Metrics, before the final Analyze call, using the exact same
+        // in-memory $aggregatedMetrics already computed above (never
+        // derived_metrics, never a fresh CSV read/aggregation — see
+        // EvaluateAnalysisJobAction's docblock and
+        // docs/product/EVALUATION_ENGINE.md). Soft-fail by design: a
+        // technical failure here (a bug, an unexpected aggregated_metrics
+        // shape, ...) must never turn an otherwise-successful AI analysis
+        // into a Failed AnalysisJob — Evaluation is independently
+        // verified in Phase 4-A and not yet relied on by anything
+        // downstream (see docs/product/EVALUATION_ENGINE.md "Soft-fail").
+        // A *business* outcome such as insufficient_data, a zero
+        // denominator, or an unmapped field is never an exception in the
+        // first place (see EvaluateRateMetricAction /
+        // ResolveEvaluationMetricDefinitionsAction) — only a genuine bug
+        // reaches this catch.
+        try {
+            $this->evaluateAnalysisJobAction->execute($analysisJob, $aggregatedMetrics);
+        } catch (Throwable $evaluationException) {
+            Log::error('EvaluateAnalysisJobAction: technical failure — continuing the analysis pipeline without Evaluation Facts.', [
+                'analysis_job_id' => $analysisJob->analysis_job_id,
+                'template_key' => $analysisJob->template_key,
+                'exception_class' => $evaluationException::class,
+                'exception_message' => $evaluationException->getMessage(),
+            ]);
+
+            // "delete + recreate" (execute()'s own idempotency guarantee)
+            // never ran for this attempt, so any EvaluationFact rows a
+            // *previous, successful* attempt left behind are still
+            // sitting there describing this AnalysisJob as if this
+            // attempt had evaluated it too. Clear them rather than let
+            // stale facts silently survive a technical failure — see
+            // EvaluateAnalysisJobAction::clearForAnalysisJob()'s
+            // docblock and docs/product/EVALUATION_ENGINE.md
+            // "Soft-fail". Persistence stays owned by
+            // EvaluateAnalysisJobAction; this never touches the
+            // EvaluationFact model directly.
+            try {
+                $this->evaluateAnalysisJobAction->clearForAnalysisJob($analysisJob);
+            } catch (Throwable $cleanupException) {
+                // Never let a cleanup failure mask the original
+                // Evaluation exception above — both are logged
+                // independently, and this stays inside the outer
+                // soft-fail: the pipeline still continues to Analyze.
+                Log::critical('EvaluateAnalysisJobAction: failed to clear stale EvaluationFacts after a technical failure.', [
+                    'analysis_job_id' => $analysisJob->analysis_job_id,
+                    'template_key' => $analysisJob->template_key,
+                    'original_exception_class' => $evaluationException::class,
+                    'original_exception_message' => $evaluationException->getMessage(),
+                    'cleanup_exception_class' => $cleanupException::class,
+                    'cleanup_exception_message' => $cleanupException->getMessage(),
+                ]);
+            }
+        }
 
         $context = $this->buildAnalysisContextAction->execute(
             $prompt,

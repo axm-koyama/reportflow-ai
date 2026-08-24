@@ -9,6 +9,7 @@ use Database\Factories\AnalysisJobFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Support\Carbon;
@@ -24,6 +25,7 @@ use Illuminate\Support\Carbon;
  * @property Carbon|null $deleted_at
  * @property-read AnalysisJobDetail|null $analysisJobDetail
  * @property-read DataFile $dataFile
+ * @property-read \Illuminate\Database\Eloquent\Collection<int, EvaluationFact> $evaluationFacts
  */
 class AnalysisJob extends Model
 {
@@ -79,5 +81,16 @@ class AnalysisJob extends Model
     public function analysisJobDetail(): HasOne
     {
         return $this->hasOne(AnalysisJobDetail::class, 'analysis_job_id', 'analysis_job_id');
+    }
+
+    /**
+     * Get the Phase 4-A Evaluation Facts computed for this analysis job.
+     * See docs/product/EVALUATION_ENGINE.md.
+     *
+     * @return HasMany<EvaluationFact, $this>
+     */
+    public function evaluationFacts(): HasMany
+    {
+        return $this->hasMany(EvaluationFact::class, 'analysis_job_id', 'analysis_job_id');
     }
 }

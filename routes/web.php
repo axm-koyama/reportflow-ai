@@ -37,3 +37,9 @@ Route::prefix('projects/{project}/data-files/{dataFile}')
 
 Route::get('/projects/{project}/analysis-jobs/{analysisJob}', [AnalysisJobController::class, 'show'])
     ->name('projects.analysis-jobs.show');
+
+Route::get('/projects/{project}/analysis-jobs/{analysisJob}/mapping', [AnalysisJobController::class, 'editMapping'])
+    ->name('projects.analysis-jobs.mapping.edit');
+
+Route::patch('/projects/{project}/analysis-jobs/{analysisJob}/mapping', [AnalysisJobController::class, 'updateMapping'])
+    ->name('projects.analysis-jobs.mapping.update');

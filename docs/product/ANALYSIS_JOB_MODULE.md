@@ -846,6 +846,17 @@ NormalizeAnalysisResultAction
 > called again once resolved (docs/product/MAPPING_CONTROL.md). See
 > ExecuteAnalysisJobAction's class docblock for the current, authoritative
 > pipeline order.
+>
+> **Phase 4-A addition**: `ExecuteAnalysisJobAction` now also calls
+> `EvaluateAnalysisJobAction` (the Deterministic Evaluation Engine) right
+> after `CalculateDerivedMetricsAction` and before
+> `BuildAnalysisContextAction`, reusing the same in-memory
+> `aggregated_metrics` already computed in this attempt (no extra CSV
+> read/aggregation). This adds **zero** AI calls — the AI call count above
+> is unaffected — and is wrapped in a soft-fail `try/catch`: a technical
+> exception inside Evaluation is logged and the pipeline continues to
+> Analyze/`markCompleted()` rather than failing the AnalysisJob. See
+> docs/product/EVALUATION_ENGINE.md.
 
 ### CreateAnalysisJobAction
 

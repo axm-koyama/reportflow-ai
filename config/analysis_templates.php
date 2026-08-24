@@ -18,6 +18,12 @@
 | formulas (recommended_derived_metrics are hints only — Planning AI
 | still decides what to actually propose, per docs/product/DERIVED_METRICS.md).
 |
+| This file is AI-facing configuration only ('fields' / 'recommended_derived_metrics'
+| are read into Mapping/Planning AI Context). Phase 4-A's Deterministic
+| Evaluation Engine — a Laravel-only concern the AI never sees — is
+| configured separately in config/evaluation_metrics.php, keyed by the
+| same Template keys. See docs/product/EVALUATION_ENGINE.md.
+|
 | 'fields' keys are semantic field identifiers. Each field's 'kind'
 | drives Column Mapping's type-based candidate filtering:
 |

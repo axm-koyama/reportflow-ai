@@ -65,7 +65,7 @@ class AnalysisJobController extends Controller
      */
     public function show(Project $project, AnalysisJob $analysisJob): View
     {
-        $analysisJob->loadMissing(['dataFile', 'analysisJobDetail']);
+        $analysisJob->loadMissing(['dataFile', 'analysisJobDetail', 'evaluationFacts']);
 
         $this->ensureAnalysisJobBelongsToProject($project, $analysisJob);
 

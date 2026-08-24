@@ -43,6 +43,10 @@
             .badge-processing { background: #dbeafe; color: #1e40af; }
             .badge-completed { background: #dcfce7; color: #166534; }
             .badge-failed { background: #fee2e2; color: #991b1b; }
+            .badge-high { background: #dcfce7; color: #166534; }
+            .badge-medium { background: #fef3c7; color: #92400e; }
+            .badge-low { background: #e5e5e5; color: #52525b; }
+            .badge-insufficient_data { background: #f3f4f6; color: #6b7280; }
             .alert-error { background: #fee2e2; color: #991b1b; padding: 0.75rem 1rem; border-radius: 4px; margin-bottom: 1rem; }
             .card { background: #fff; border-radius: 6px; padding: 1rem; margin-bottom: 1rem; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08); }
             .card h2 { font-size: 1.1rem; margin: 0 0 0.75rem; }

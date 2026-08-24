@@ -18,6 +18,16 @@
 > のfilteringも、その場合はAI validated mappingではなくEffective
 > Mapping基準で再評価される。`PlanDerivedMetricsAction`自体のコードは
 > 無変更。詳細はdocs/product/MAPPING_CONTROL.mdを参照。
+>
+> **Phase 4-A で追加**: 新設された Deterministic Evaluation Engine
+> (`EvaluateAnalysisJobAction`ほか)は、この`derived_metrics`を**一切
+> 参照しない**。`derived_metrics`はnumerator/denominatorの生カウントを
+> 保持せず、`percentage`演算子は0〜100スケールであり、かつ
+> 提案されるかどうか自体がPlanning AIの非決定的判断に依存するため——
+> Evaluation Engineは代わりに`effective_column_mapping` +
+> `config/evaluation_metrics.php` + `aggregated_metrics`から直接
+> numerator/denominatorを解決する(0〜1スケール)。詳細は
+> docs/product/EVALUATION_ENGINE.mdを参照。
 
 ## 1. Purpose
 
