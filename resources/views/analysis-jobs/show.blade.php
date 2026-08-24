@@ -140,6 +140,7 @@
                             <th>Difference</th>
                             <th>Direction</th>
                             <th>Evaluation</th>
+                            <th>確認優先度</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -152,6 +153,37 @@
                                 <td>{{ $fact->delta_absolute !== null ? ($fact->delta_absolute >= 0 ? '+' : '').number_format($fact->delta_absolute * 100, 2).'pp' : '-' }}</td>
                                 <td>{{ $fact->direction ? ucfirst($fact->direction) : '-' }}</td>
                                 <td><span class="badge badge-{{ $fact->evaluation_level }}">{{ $fact->evaluation_level === 'insufficient_data' ? 'Insufficient data' : ucfirst($fact->evaluation_level) }}</span></td>
+                                {{-- Phase 4-C: Deterministic Priority Layer. See docs/product/PRIORITY_ENGINE.md.
+                                     Priority is a distinct axis from Evaluation above — "確認優先度" (never
+                                     "優先度" alone, to avoid reading as an execution priority; see
+                                     PRIORITY_ENGINE.md "UI日本語名称") — so a High Evaluation next to a Low
+                                     確認優先度 (or vice versa) is expected, not a bug. Its "比較対照との差"
+                                     (deliberately not "基準との差", to avoid reading as the Difference column
+                                     above) is $fact->priorityResult->gap_raw_value — the leave-one-out
+                                     peer/control gap (test_baseline_value) — never the Difference column's own
+                                     delta_absolute (display_baseline_value, which includes this entity itself
+                                     and self-dilutes for a large-traffic-share entity; see
+                                     PRIORITY_ENGINE.md "Gap Reference"). Three distinct states, never
+                                     collapsed into one another:
+                                     1) not Priority-eligible (favorable/low/insufficient_data): "-"
+                                     2) eligible with a PriorityResult: the Band, plus its deterministic inputs
+                                     3) eligible but no PriorityResult (a per-AnalysisJob technical soft-fail —
+                                        see PrioritizeAnalysisJobAction "Soft-fail"): an explicit unavailable message,
+                                        never silently rendered the same as "-" (case 1), mirroring the Diagnosis
+                                        section's own "診断結果を取得できませんでした" distinction. --}}
+                                <td>
+                                    @if (! ($priorityEligibility[$fact->evaluation_fact_id] ?? false))
+                                        -
+                                    @elseif ($fact->priorityResult)
+                                        <span class="badge badge-{{ $fact->priorityResult->priority_band }}">{{ ucfirst($fact->priorityResult->priority_band) }}</span>
+                                        <div class="hint">
+                                            流量影響 {{ number_format($fact->priorityResult->impact_score * 100, 1) }}% /
+                                            比較対照との差 {{ number_format($fact->priorityResult->gap_raw_value * 100, 2) }}pp
+                                        </div>
+                                    @else
+                                        <span class="hint">取得できませんでした</span>
+                                    @endif
+                                </td>
                             </tr>
                         @endforeach
                     </tbody>

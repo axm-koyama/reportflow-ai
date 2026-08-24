@@ -1,0 +1,23 @@
+{
+    "case": "tiny_severe",
+    "description": "New Priority-specific synthetic case (tiny impact, severe gap, but still statistically valid) — 'Tiny Severe Channel': 100 clicks / 0 conversions, peers (leave-one-out control) 50,000 clicks at CVR 6.0% combined, total 50,100 clicks. test_baseline_value = 3000/50000 = 0.06 exactly (peers only). Independently computed: normal-approximation gate passes (100*p=5.99>=5 etc.), z ~= -2.53 (|z| >= 1.96) -> evaluation_level = high, direction = below. Deliberately eligible (not insufficient_data) — the point under test is that even a statistically valid, severe-gap anomaly stays a Low Priority when its own traffic share is negligible.",
+    "template_key": "ad_performance",
+    "trigger_fact": {
+        "entity_key": "TinyChannel",
+        "metric_key": "conversion_rate",
+        "direction": "below",
+        "evaluation_level": "high",
+        "metric_value": 0.0,
+        "test_baseline_value": 0.06,
+        "denominator_value": 100
+    },
+    "impact_context": {
+        "impact_total": 50100
+    },
+    "expected": {
+        "eligible": true,
+        "priority_band": "low",
+        "min_score": 0.0,
+        "max_score": 0.01
+    }
+}

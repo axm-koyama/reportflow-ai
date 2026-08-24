@@ -1,0 +1,24 @@
+{
+    "case": "case_c_display",
+    "description": "Product Validation Case C (dominant channel) — Display: CVR 4.00% vs display baseline 5.03%, Below + High. Total clicks across the CSV = 100,000; Display's own 2,500 clicks are only 2.5% of it. test_baseline_value is the leave-one-out control (4925/97500 = 0.050513...).",
+    "template_key": "ad_performance",
+    "trigger_fact": {
+        "entity_key": "Display",
+        "metric_key": "conversion_rate",
+        "direction": "below",
+        "evaluation_level": "high",
+        "metric_value": 0.04,
+        "test_baseline_value": 0.050512821,
+        "denominator_value": 2500
+    },
+    "impact_context": {
+        "impact_total": 100000
+    },
+    "expected": {
+        "eligible": true,
+        "priority_band": "low",
+        "min_score": 0.012,
+        "max_score": 0.015,
+        "greater_than": "case_b_display"
+    }
+}

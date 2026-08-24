@@ -372,6 +372,41 @@ analysis_job_details.error_message = ...
 
 Laravel may also record the failed queue execution in `failed_jobs`.
 
+### Operational runbook: restart the queue worker after every code/config deploy
+
+**A long-running `php artisan queue:work` process does not pick up code
+or config changes made after it started.** PHP does not re-evaluate an
+already-declared class or an already-loaded config value within the same
+process — `ExecuteAnalysisJobAction` and everything it depends on
+(including new files such as `PrioritizeAnalysisJobAction` and new config
+such as `config/priority_rules.php`) is loaded once, the first time the
+worker handles a job, and kept in memory for the rest of that process's
+life.
+
+This was discovered directly during Phase 4-C's own Browser/E2E
+validation: a `queue:work` process that had been running since before the
+Priority Layer was deployed silently produced **zero** `PriorityResult`
+rows — no exception, no error log — because it was still executing the
+pre-Phase-4-C compiled version of `ExecuteAnalysisJobAction`. The fix was
+to stop that process and start a fresh one.
+
+**Rule**: after deploying any code or config change, restart every queue
+worker process before relying on it to process new jobs:
+
+```bash
+php artisan queue:restart
+```
+
+`queue:restart` signals every worker to exit after finishing its current
+job; something must actually bring a new worker process back up
+afterward (a process supervisor such as `supervisord`, or a manual
+restart of `php artisan queue:work`) — `queue:restart` alone does not
+relaunch one. In this project's local `docker compose` environment (no
+supervisor configured as of Phase 4-C), that means explicitly killing and
+restarting the `queue:work` process inside the `app` container after
+every deploy, not just running `queue:restart` and assuming it recovers
+on its own.
+
 ---
 
 ## Asynchronous Flow
@@ -875,6 +910,21 @@ NormalizeAnalysisResultAction
 > `config/evaluation_metrics.php` entry) — restricting Final Analyze to
 > descriptive analysis only (no causal diagnosis, no priority, no
 > action recommendation). See docs/product/DIAGNOSIS_ENGINE.md.
+>
+> **Phase 4-C addition**: `ExecuteAnalysisJobAction` now also calls
+> `PrioritizeAnalysisJobAction` (the Deterministic Priority Layer) right
+> after `EvaluateAnalysisJobAction` and before `BuildAnalysisContextAction`
+> — reading only the `EvaluationFact` rows Evaluation just persisted, never
+> `aggregated_metrics`/`derived_metrics`/`DiagnosisResult` (which does not
+> exist yet at this point in the pipeline). This adds **zero** AI calls —
+> Priority is entirely Laravel-deterministic, mirroring Evaluation's own
+> "AI = 一切参加しない" principle — and is wrapped in the same soft-fail
+> `try/catch` shape as `EvaluateAnalysisJobAction`, including clearing any
+> stale `PriorityResult` rows on a technical failure. Priority is never fed
+> into `BuildAnalysisContextAction`/`analyze()` or into
+> `RunDiagnosisForAnalysisJobAction`'s Evidence Package — it is surfaced
+> only through its own minimal UI column. See
+> docs/product/PRIORITY_ENGINE.md.
 
 ### CreateAnalysisJobAction
 

@@ -52,6 +52,7 @@ use Illuminate\Support\Carbon;
  * @property Carbon|null $updated_at
  * @property-read AnalysisJob $analysisJob
  * @property-read DiagnosisResult|null $diagnosisResult
+ * @property-read PriorityResult|null $priorityResult
  */
 class EvaluationFact extends Model
 {
@@ -137,5 +138,21 @@ class EvaluationFact extends Model
     public function diagnosisResult(): HasOne
     {
         return $this->hasOne(DiagnosisResult::class, 'evaluation_fact_id', 'evaluation_fact_id');
+    }
+
+    /**
+     * Get the Phase 4-C Priority Result computed for this evaluation fact,
+     * if any (not every EvaluationFact is Priority-eligible — see
+     * DetermineDiagnosisEligibilityAction, reused as-is for Priority
+     * Eligibility — and an eligible one may still have none if Priority
+     * calculation technically failed — see docs/product/PRIORITY_ENGINE.md
+     * "Soft-fail"). Phase 4-C v1 produces at most one Priority per
+     * EvaluationFact.
+     *
+     * @return HasOne<PriorityResult, $this>
+     */
+    public function priorityResult(): HasOne
+    {
+        return $this->hasOne(PriorityResult::class, 'evaluation_fact_id', 'evaluation_fact_id');
     }
 }

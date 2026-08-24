@@ -3,8 +3,10 @@
 > **Target Architecture reference**: ReportFlow AIのPhase 4全体は
 > `Facts → Evaluation → Diagnosis → Priority → Action` という5層の
 > Target Architectureとして設計参考資料が存在する(docs/product/EVALUATION_ENGINE.md
-> 冒頭も参照)。今回実装したのは`Diagnosis`層のみであり、Priority /
-> Actionは**一切実装していない**(§16 "Phase 4-B v1対象外"を参照)。
+> 冒頭も参照)。Phase 4-B時点で実装したのは`Diagnosis`層のみであり、
+> Priority / Actionは実装していなかった(§16 "Phase 4-B v1対象外"を
+> 参照)。**Priority層はPhase 4-Cで実装済み** —
+> docs/product/PRIORITY_ENGINE.md参照。Actionは引き続き未実装。
 
 ## 1. Purpose
 
@@ -156,9 +158,12 @@ Templateだけが対象——v1では`ad_performance`のみ。
 
 `recommendations[].priority`フィールド自体はschema互換性のため残す。
 Decision-enabledの新規結果ではrecommendations自体が空になるため
-priorityも実質出現しない。将来Priority Engine(Laravel deterministic
-formula, Phase 4-C以降Future Scope)が実装され次第、legacy AI priority
-は正式に廃止する方向(Phase 4-B v1では未実施)。
+priorityも実質出現しない。**Priority Engine(Laravel deterministic
+formula)はPhase 4-Cで実装済み**(docs/product/PRIORITY_ENGINE.md) —
+ただし新設の`PriorityResult`は`recommendations[].priority`とは完全に
+別のテーブル/UIであり、legacy AI priorityフィールド自体の廃止はまだ
+実施していない(後方互換性維持のため、Free Analysis/sales_analysis/
+Phase 4-B以前のAnalysisJobでは引き続きUI表示される、§14参照)。
 
 ## 5. Diagnosis Eligibility
 
@@ -656,7 +661,7 @@ OpenAI依存を1箇所に閉じ込める設計思想と整合)。
 
 ## 16. Phase 4-B v1対象外(Future Scope)
 
-- Priority Engine / Action Catalog / Action AI
+- ~~Priority Engine~~ → **Phase 4-Cで実装済み**(docs/product/PRIORITY_ENGINE.md)。Action Catalog / Action AIは引き続き未実装。
 - budget allocation / execute action
 - `performance_tradeoff`カテゴリ(§8「Future Scope」参照 — config/evaluation_metrics.php拡張が前提)
 - confidence calibration batch / multiple sampling / self-consistency voting
@@ -719,3 +724,75 @@ insufficient_explanatory_evidence   → 「十分な根拠がありません」
 
 Eligible数が0件のAnalysisJob(全EntityがInsufficient data/favorable/low)
 では、Diagnosis AI Callは**0**——固定オーバーヘッドではない。
+
+## 19. Product Validation (Case A/B/C, Browser E2E)
+
+Real Browser UI 経由で3つのsynthetic CSV(Case A: 均等トラフィック,
+Case B: 低サンプル, Case C: 支配的channel)を実行し、Evaluation →
+Diagnosis Eligibility → Evidence Gate → Diagnosis AI の一連の挙動を
+確認した(Phase 4-B完了時点の検証)。各Caseのtrigger_factは
+`tests/fixtures/diagnosis_eval/case_{a,b,c}_*.json` に regression
+fixture として保存されており、CIで継続的に再検証される。
+
+### Case A — Balanced Traffic (全channel clicks=12,000)
+
+| Entity | CVR | Baseline | Direction | Level | Diagnosis Eligibility | Diagnosis Outcome |
+|---|---|---|---|---|---|---|
+| Display | 4.50% | 4.90% | Below | Medium | eligible | `insufficient_explanatory_evidence` |
+| Social | 3.50% | 4.90% | Below | High | eligible | `insufficient_explanatory_evidence` |
+| Email | 5.50% | 4.90% | Above | High | not eligible(favorable) | Diagnosisなし |
+| Paid Search | 6.00% | 4.90% | Above | High | not eligible(favorable) | Diagnosisなし |
+| Organic | 5.00% | 4.90% | Above | Low | not eligible(low) | Diagnosisなし |
+
+確認結果: **PASS**。確認できた重要ポイント:
+
+- Final AnalyzeからRecommendations / Priority / Actionが消えた
+  (Descriptive-only境界が有効)
+- unfavorable High/MediumのみDiagnosisが実行される、favorable High
+  はDiagnosisされない
+- Evidence不足時にAIがcreative/landing-page/audience等を断定しない
+  (Abstentionが正しく機能)
+
+### Case B — Low Sample
+
+| Entity | CVR | Direction | Level | Diagnosis Eligibility | Diagnosis Outcome |
+|---|---|---|---|---|---|
+| Display | 3.33% | Below | Medium | eligible | `insufficient_explanatory_evidence` |
+| Email | 7.50% | Above | **Insufficient data** | not eligible | AI call 0 |
+| Social | 2.50% | Below | **Insufficient data** | not eligible | AI call 0 |
+| Organic | 5.50% | Below | Low | not eligible(low) | Diagnosisなし |
+| Paid Search | 6.00% | Above | Low | not eligible(low) | Diagnosisなし |
+
+確認結果: **PASS**。最重要ポイント: 「見かけ上の差が大きい」≠
+「Diagnosisしてよい」という安全境界の成立。Email 7.5%(40 clicks/
+3 conversions)・Social 2.5%(80 clicks/2 conversions)、どちらも
+見た目のCVR差は大きいが `insufficient_data` としてDiagnosis自体が
+実行されない。Phase 4-Cでもこの考え方を維持した(§8参照、Priority
+Eligibilityも同一条件)。
+
+### Case C — Dominant Channel
+
+| Entity | CVR | Baseline | Direction | Level | Diagnosis Eligibility | Diagnosis Outcome |
+|---|---|---|---|---|---|---|
+| Display | 4.00% | 5.04% | Below | High | eligible | `insufficient_explanatory_evidence` |
+| Email | 3.00% | 5.04% | Below | High | eligible | `insufficient_explanatory_evidence` |
+| Organic | 6.00% | 5.04% | Above | High | not eligible(favorable) | Diagnosisなし |
+| Social | 8.00% | 5.04% | Above | High | not eligible(favorable) | Diagnosisなし |
+| Paid Search | 5.00% | 5.04% | Below | Low | not eligible(low) | Diagnosisなし |
+
+確認結果: **PASS**。重要: SocialがAbove + Highでも(1) Diagnosisされ
+ない (2) Priorityもまだ存在しない(Phase 4-B時点)(3) budget increase
+等も生成されない——Phase 4-A/4-Bの責務境界が成立していることを確認。
+
+### Product Validationから得たPriority設計上の教訓(Phase 4-C投入)
+
+| # | 教訓 | Phase 4-Cへの適用 |
+|---|---|---|
+| A | High = 悪い、ではない | Priority候補は原則unfavorable側のみを対象にする |
+| B | insufficient_dataはDiagnosis AIすら呼ばれない | Priorityも同じEligibility外に置く |
+| C | Evaluation LevelとPriorityは別概念 | 同じHigh/Medium/Lowラベルでも Source of Truth を分ける |
+| D | `insufficient_explanatory_evidence`でもEvaluation自体は強い場合がある | 「原因不明 = Priority低」ではない |
+
+Phase 4-Cでの実装・再検証(Case A/B/C + Dominant Bad Channel / Tiny
+Severe Channel synthetic case)は docs/product/PRIORITY_ENGINE.md
+§24-25を参照。

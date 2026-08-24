@@ -1,0 +1,24 @@
+{
+    "case": "case_b_display",
+    "description": "Product Validation Case B (low sample) — Display: 120 clicks / 4 conversions, CVR 3.33%, Below + Medium. Real per-channel counts from the Case B Product Validation run: Paid Search 10000/600, Organic 8000/440, Email 40/3, Display 120/4, Social 80/2 (total clicks = 18,240 — this is the real impact_total, not an illustrative placeholder). test_baseline_value is the leave-one-out control (Email+Organic+Paid Search+Social = 1045/18120 = 0.057671...).",
+    "template_key": "ad_performance",
+    "trigger_fact": {
+        "entity_key": "Display",
+        "metric_key": "conversion_rate",
+        "direction": "below",
+        "evaluation_level": "medium",
+        "metric_value": 0.033333333,
+        "test_baseline_value": 0.057671082,
+        "denominator_value": 120
+    },
+    "impact_context": {
+        "impact_total": 18240
+    },
+    "expected": {
+        "eligible": true,
+        "priority_band": "low",
+        "min_score": 0.005,
+        "max_score": 0.008,
+        "greater_than": "tiny_severe"
+    }
+}

@@ -2,12 +2,12 @@
 
 > **Target Architecture reference**: ReportFlow AIのPhase 4全体は
 > `Facts → Evaluation → Diagnosis → Priority → Action` という5層の
-> Target Architectureとして設計参考資料が存在するが、それらは**未実装の
-> 設計参考資料**であり、このドキュメントが記述する実装済み仕様と混同
-> しないこと。今回実装したのはPhase 4-Aの`Evaluation`層のみであり、
-> Diagnosis / Priority / Action、および historical baseline / temporal
-> trend / pipeline orchestration全体は**一切実装していない**(§20
-> "Phase 4-A対象外"を参照)。
+> Target Architectureとして設計参考資料が存在する。このドキュメント自体が
+> 記述するのはPhase 4-Aの`Evaluation`層の実装済み仕様のみ。Diagnosis層
+> はPhase 4-B(docs/product/DIAGNOSIS_ENGINE.md)、Priority層はPhase 4-C
+> (docs/product/PRIORITY_ENGINE.md)で実装済み。Action、および
+> historical baseline / temporal trend / pipeline orchestration全体は
+> 引き続き未実装(§20 "Phase 4-A対象外"を参照)。
 
 ## 1. Purpose
 
@@ -351,6 +351,21 @@ abs(delta_absolute) + COMPARISON_EPSILON < practical_significance_floor
 オーダーの整数)がintegerとみなせるか」の判定用であり、意味も妥当な
 epsilonのオーダーも異なる。
 
+### Known Limitation: dominant-entity self-dilution(Phase 4-C cross-reference)
+
+この`delta_absolute`は`display_baseline_value`(entity自身を含む
+加重平均)基準であるため、traffic shareが極端に大きいentityでは
+`display_baseline_value`自体がそのentityの値へ引き寄せられ、
+`delta_absolute`が縮小し、上記floor判定によって`evaluation_level`が
+downgradeされ得る(例: shareの90%を占めるentityでは、真のpeer差が
+約4.0ppでも`delta_absolute`は約0.4ppまで縮小する)。これはPhase 4-A
+自身の既知の制約であり、本ドキュメントの範囲では変更していない。
+詳細と実例はdocs/product/PRIORITY_ENGINE.md §8-2「Known Limitation:
+dominant-entity self-dilution in Evaluation practical significance」
+を参照——Phase 4-CのPriority Gap自体はこの問題の影響を受けない
+(`test_baseline_value`基準に修正済み)が、Priority Eligibilityが
+依存するこの`evaluation_level`自体はこの制約の影響を受け得る。
+
 ## 16. Evaluation Level
 
 ```text
@@ -619,7 +634,7 @@ Difference / Direction / Evaluation。rate値・baseline・deltaは
 - ~~Diagnosis AI / diagnosis_categories~~ → Phase 4-Bで実装済み。
   confidence calibration(self_reported_confidenceのcalibration)は
   引き続き未実装。docs/product/DIAGNOSIS_ENGINE.md参照。
-- Priority formula
+- ~~Priority formula~~ → Phase 4-Cで実装済み。docs/product/PRIORITY_ENGINE.md参照。
 - Action Catalog / Action AI
 - user feedback
 - pipeline_run_id / report_snapshot

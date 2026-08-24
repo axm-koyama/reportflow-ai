@@ -73,13 +73,23 @@ class AnalysisJobController extends Controller
      * DiagnosisResult" (Diagnosis unavailable — a per-entity soft-fail;
      * see RunDiagnosisForAnalysisJobAction) without a dedicated
      * diagnosis_status column.
+     *
+     * Phase 4-C: Priority Eligibility is, by definition, the exact same
+     * condition as Diagnosis Eligibility (see
+     * PrioritizeAnalysisJobAction's docblock and
+     * docs/product/PRIORITY_ENGINE.md "Priority Eligibility") — the same
+     * $diagnosisEligibility array is reused for the Priority column
+     * rather than computed a second time, and passed to the view under
+     * both names so the Blade template can express its own intent
+     * (Diagnosis section vs. Priority column) without implying two
+     * different computations exist.
      */
     public function show(
         Project $project,
         AnalysisJob $analysisJob,
         DetermineDiagnosisEligibilityAction $determineDiagnosisEligibilityAction,
     ): View {
-        $analysisJob->loadMissing(['dataFile', 'analysisJobDetail', 'evaluationFacts.diagnosisResult']);
+        $analysisJob->loadMissing(['dataFile', 'analysisJobDetail', 'evaluationFacts.diagnosisResult', 'evaluationFacts.priorityResult']);
 
         $this->ensureAnalysisJobBelongsToProject($project, $analysisJob);
 
@@ -94,7 +104,9 @@ class AnalysisJobController extends Controller
             }
         }
 
-        return view('analysis-jobs.show', compact('project', 'analysisJob', 'diagnosisEligibility'));
+        $priorityEligibility = $diagnosisEligibility;
+
+        return view('analysis-jobs.show', compact('project', 'analysisJob', 'diagnosisEligibility', 'priorityEligibility'));
     }
 
     /**

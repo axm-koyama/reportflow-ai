@@ -8,6 +8,7 @@ use App\Actions\DataProfiling\DataProfilingAction;
 use App\Actions\DataProfiling\MetricAggregationAction;
 use App\Actions\Diagnosis\RunDiagnosisForAnalysisJobAction;
 use App\Actions\Evaluation\EvaluateAnalysisJobAction;
+use App\Actions\Priority\PrioritizeAnalysisJobAction;
 use App\AI\AiAnalysisClient;
 use App\Enums\AnalysisJobStatus;
 use App\Models\AnalysisJob;
@@ -48,6 +49,12 @@ use Throwable;
  *                                    any EvaluationFact rows a previous successful attempt left
  *                                    behind are cleared via clearForAnalysisJob() so this attempt
  *                                    never leaves stale facts behind while continuing to Analyze)
+ *   -> PrioritizeAnalysisJobAction  (Phase 4-C: persisted EvaluationFact rows + config/priority_rules.php
+ *                                    + config/evaluation_metrics.php -> persisted PriorityResult rows;
+ *                                    zero AI calls, soft-fails on technical exception exactly like
+ *                                    EvaluateAnalysisJobAction above — see below and
+ *                                    docs/product/PRIORITY_ENGINE.md. Never reads DiagnosisResult,
+ *                                    which does not exist yet at this point in the pipeline)
  *   -> BuildAnalysisContextAction   (prompt + Data Profile + Aggregated Metrics + Derived Metrics [+ analysisTemplate/columnMapping] -> AI Context;
  *                                    Phase 4-B: $decisionEnabled appends the descriptive-only instruction block — see below)
  *   -> AiAnalysisClient::analyze()  (AI Context -> raw structured output) [AI call]
@@ -65,7 +72,14 @@ use Throwable;
  * BuildAnalysisContextAction / the final Analyze call — Phase 4-A
  * evaluates independently of, and does not yet influence, the existing
  * AI analysis (see docs/product/EVALUATION_ENGINE.md "Existing Final AI
- * Analysisとの関係"). It runs for every Template AnalysisJob whose
+ * Analysisとの関係"). PrioritizeAnalysisJobAction (Phase 4-C) makes exactly
+ * the same guarantee: zero AI calls of its own, and its PriorityResult
+ * rows are never fed into BuildAnalysisContextAction / analyze() or into
+ * RunDiagnosisForAnalysisJobAction's Evidence Package — Priority is
+ * surfaced only through its own minimal UI (see
+ * docs/product/PRIORITY_ENGINE.md "Final AnalyzeへPriorityを渡さない" /
+ * "DiagnosisへPriorityを渡さない"). EvaluateAnalysisJobAction itself
+ * still runs for every Template AnalysisJob whose
  * Effective Mapping is confirmed at this point in this same attempt
  * (auto-confident or resumed-after-manual-confirmation — both paths
  * converge before Planning, see above); it never runs for free-form
@@ -165,6 +179,7 @@ class ExecuteAnalysisJobAction
         private readonly PlanDerivedMetricsAction $planDerivedMetricsAction,
         private readonly CalculateDerivedMetricsAction $calculateDerivedMetricsAction,
         private readonly EvaluateAnalysisJobAction $evaluateAnalysisJobAction,
+        private readonly PrioritizeAnalysisJobAction $prioritizeAnalysisJobAction,
         private readonly BuildAnalysisContextAction $buildAnalysisContextAction,
         private readonly AiAnalysisClient $aiAnalysisClient,
         private readonly NormalizeAnalysisResultAction $normalizeAnalysisResultAction,
@@ -183,18 +198,16 @@ class ExecuteAnalysisJobAction
      * AnalysisJob already Completed, Failed, or
      * AwaitingMappingConfirmation is left untouched (see class docblock).
      *
-     * @param int $analysisJobId
-     * @return void
      * @throws ModelNotFoundException if no AnalysisJob exists for the given ID.
-     * @throws \Throwable propagated as-is from markProcessing(), Data
-     *                     Profiling, Metric Aggregation, Analysis Template
-     *                     resolution, Metric Planning, Derived Metric
-     *                     calculation, AI Context building, the final
-     *                     analysis AI call, normalization, or
-     *                     markCompleted(), for the Laravel Queue worker to
-     *                     retry or ultimately fail. A missing required
-     *                     Template field is never one of these — see the
-     *                     class docblock.
+     * @throws Throwable propagated as-is from markProcessing(), Data
+     *                   Profiling, Metric Aggregation, Analysis Template
+     *                   resolution, Metric Planning, Derived Metric
+     *                   calculation, AI Context building, the final
+     *                   analysis AI call, normalization, or
+     *                   markCompleted(), for the Laravel Queue worker to
+     *                   retry or ultimately fail. A missing required
+     *                   Template field is never one of these — see the
+     *                   class docblock.
      */
     public function execute(int $analysisJobId): void
     {
@@ -386,6 +399,42 @@ class ExecuteAnalysisJobAction
                     'template_key' => $analysisJob->template_key,
                     'original_exception_class' => $evaluationException::class,
                     'original_exception_message' => $evaluationException->getMessage(),
+                    'cleanup_exception_class' => $cleanupException::class,
+                    'cleanup_exception_message' => $cleanupException->getMessage(),
+                ]);
+            }
+        }
+
+        // Phase 4-C: Deterministic Priority Layer. Runs immediately after
+        // Evaluation, before the final Analyze call — Priority is AI-free
+        // and depends only on the EvaluationFact rows just persisted above
+        // (never aggregated_metrics, never derived_metrics, never a
+        // DiagnosisResult, which does not exist yet at this point in the
+        // pipeline anyway — see PrioritizeAnalysisJobAction's docblock and
+        // docs/product/PRIORITY_ENGINE.md). Soft-fail by design, mirroring
+        // Evaluation's own soft-fail immediately above: a technical failure
+        // here must never turn an otherwise-successful AnalysisJob into a
+        // Failed one, and any PriorityResult rows a previous successful
+        // attempt left behind must not survive this attempt's failure
+        // either (see PrioritizeAnalysisJobAction::clearForAnalysisJob()).
+        try {
+            $this->prioritizeAnalysisJobAction->execute($analysisJob);
+        } catch (Throwable $priorityException) {
+            Log::error('PrioritizeAnalysisJobAction: technical failure — continuing the analysis pipeline without Priority.', [
+                'analysis_job_id' => $analysisJob->analysis_job_id,
+                'template_key' => $analysisJob->template_key,
+                'exception_class' => $priorityException::class,
+                'exception_message' => $priorityException->getMessage(),
+            ]);
+
+            try {
+                $this->prioritizeAnalysisJobAction->clearForAnalysisJob($analysisJob);
+            } catch (Throwable $cleanupException) {
+                Log::critical('PrioritizeAnalysisJobAction: failed to clear stale PriorityResults after a technical failure.', [
+                    'analysis_job_id' => $analysisJob->analysis_job_id,
+                    'template_key' => $analysisJob->template_key,
+                    'original_exception_class' => $priorityException::class,
+                    'original_exception_message' => $priorityException->getMessage(),
                     'cleanup_exception_class' => $cleanupException::class,
                     'cleanup_exception_message' => $cleanupException->getMessage(),
                 ]);
