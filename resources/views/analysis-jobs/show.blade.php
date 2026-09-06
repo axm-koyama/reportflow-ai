@@ -228,5 +228,46 @@
                 </section>
             @endif
         @endif
+
+        <section class="card">
+            <h2>Controlled Actions</h2>
+            @forelse ($controlledActionViewData['proposals'] as $proposal)
+                <article>
+                    <h3>{{ $proposal->title }}</h3>
+                    <p><span class="badge">Advisory only — not executed</span></p>
+                    <dl class="metadata">
+                        <dt>Catalog</dt>
+                        <dd>{{ config("action_catalog.{$proposal->catalog_key}.label") ?? $proposal->catalog_key }}</dd>
+                        <dt>Target</dt>
+                        <dd>{{ $proposal->evaluationFact->entity_key }} / {{ ucfirst(str_replace('_', ' ', $proposal->evaluationFact->metric_key)) }}</dd>
+                        <dt>確認優先度</dt>
+                        <dd>
+                            <span class="badge badge-{{ $proposal->priorityResult->priority_band }}">{{ ucfirst($proposal->priorityResult->priority_band) }}</span>
+                            <span class="hint">
+                                流量影響 {{ number_format($proposal->priorityResult->impact_score * 100, 1) }}% /
+                                比較対照との差 {{ number_format($proposal->priorityResult->gap_raw_value * 100, 2) }}pp
+                            </span>
+                        </dd>
+                    </dl>
+                    <p>{{ $proposal->rationale_summary }}</p>
+                    <p class="hint">Evidence: {{ implode(' / ', $proposal->evidence_refs_json) }}</p>
+                    @if ($proposal->selected_checks_json !== [])
+                        <p class="hint">Checks: {{ implode(' / ', $proposal->selected_checks_json) }}</p>
+                    @endif
+                    @if ($proposal->missing_evidence_json !== [])
+                        <p class="hint">Missing evidence: {{ implode(' / ', $proposal->missing_evidence_json) }}</p>
+                    @endif
+                </article>
+            @empty
+                <p>No controlled action proposal was generated.</p>
+                @if (! $controlledActionViewData['applicable'])
+                    <p class="hint">Controlled Actions are not applicable to this analysis.</p>
+                @elseif ($controlledActionViewData['eligible_count'] === 0)
+                    <p class="hint">No evidence currently meets the controlled eligibility contract.</p>
+                @else
+                    <p class="hint">Eligible evidence existed, but proposals are best-effort output and may be unavailable.</p>
+                @endif
+            @endforelse
+        </section>
     @endif
 @endsection

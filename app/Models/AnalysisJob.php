@@ -6,6 +6,7 @@ namespace App\Models;
 
 use App\Enums\AnalysisJobStatus;
 use Database\Factories\AnalysisJobFactory;
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -25,7 +26,8 @@ use Illuminate\Support\Carbon;
  * @property Carbon|null $deleted_at
  * @property-read AnalysisJobDetail|null $analysisJobDetail
  * @property-read DataFile $dataFile
- * @property-read \Illuminate\Database\Eloquent\Collection<int, EvaluationFact> $evaluationFacts
+ * @property-read Collection<int, EvaluationFact> $evaluationFacts
+ * @property-read Collection<int, ActionProposal> $actionProposals
  */
 class AnalysisJob extends Model
 {
@@ -92,5 +94,10 @@ class AnalysisJob extends Model
     public function evaluationFacts(): HasMany
     {
         return $this->hasMany(EvaluationFact::class, 'analysis_job_id', 'analysis_job_id');
+    }
+
+    public function actionProposals(): HasMany
+    {
+        return $this->hasMany(ActionProposal::class, 'analysis_job_id', 'analysis_job_id');
     }
 }

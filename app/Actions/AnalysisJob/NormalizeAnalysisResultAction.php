@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Actions\AnalysisJob;
 
+use Illuminate\Support\Facades\Log;
 use InvalidArgumentException;
 use JsonException;
 
@@ -31,17 +32,27 @@ class NormalizeAnalysisResultAction
     private const array ALLOWED_PRIORITIES = ['high', 'medium', 'low'];
 
     /**
-     * @param string $rawResponse
      * @return array<string, mixed>
+     *
      * @throws InvalidArgumentException if the raw response is not valid JSON
-     * or does not match the expected result shape.
+     *                                  or does not match the expected result shape.
      */
-    public function execute(string $rawResponse): array
+    public function execute(string $rawResponse, bool $decisionEnabled = false): array
     {
         $decoded = $this->decode($rawResponse);
 
         if (! is_array($decoded)) {
             throw new InvalidArgumentException('AI response must decode to a JSON object.');
+        }
+
+        $recommendations = $this->objectList($decoded, 'recommendations', $this->normalizeRecommendation(...));
+
+        if ($decisionEnabled && $recommendations !== []) {
+            Log::warning('NormalizeAnalysisResultAction: stripped legacy recommendations from a Decision-enabled analysis.', [
+                'recommendation_count' => count($recommendations),
+            ]);
+
+            $recommendations = [];
         }
 
         return [
@@ -50,15 +61,13 @@ class NormalizeAnalysisResultAction
             'metrics' => $this->objectList($decoded, 'metrics', $this->normalizeMetric(...)),
             'tables' => $this->objectList($decoded, 'tables', $this->normalizeTable(...)),
             'insights' => $this->objectList($decoded, 'insights', $this->normalizeInsight(...)),
-            'recommendations' => $this->objectList($decoded, 'recommendations', $this->normalizeRecommendation(...)),
+            'recommendations' => $recommendations,
         ];
     }
 
     /**
      * Decode the raw AI response as an associative array.
      *
-     * @param string $rawResponse
-     * @return mixed
      * @throws InvalidArgumentException if the response is not valid JSON.
      */
     private function decode(string $rawResponse): mixed
@@ -71,7 +80,7 @@ class NormalizeAnalysisResultAction
     }
 
     /**
-     * @param array<string, mixed> $item
+     * @param  array<string, mixed>  $item
      * @return array<string, mixed>
      */
     private function normalizeMetric(array $item): array
@@ -85,7 +94,7 @@ class NormalizeAnalysisResultAction
     }
 
     /**
-     * @param array<string, mixed> $item
+     * @param  array<string, mixed>  $item
      * @return array<string, mixed>
      */
     private function normalizeTable(array $item): array
@@ -109,7 +118,7 @@ class NormalizeAnalysisResultAction
     }
 
     /**
-     * @param array<string, mixed> $item
+     * @param  array<string, mixed>  $item
      * @return array<string, mixed>
      */
     private function normalizeInsight(array $item): array
@@ -122,7 +131,7 @@ class NormalizeAnalysisResultAction
     }
 
     /**
-     * @param array<string, mixed> $item
+     * @param  array<string, mixed>  $item
      * @return array<string, mixed>
      */
     private function normalizeRecommendation(array $item): array
@@ -137,10 +146,7 @@ class NormalizeAnalysisResultAction
     /**
      * Read a required, non-null string field.
      *
-     * @param array<string, mixed> $data
-     * @param string $field
-     * @param string $context
-     * @return string
+     * @param  array<string, mixed>  $data
      */
     private function requiredString(array $data, string $field, string $context): string
     {
@@ -155,10 +161,7 @@ class NormalizeAnalysisResultAction
      * Read an optional, nullable string field. Missing and explicit null
      * both normalize to null; any non-string, non-null value is rejected.
      *
-     * @param array<string, mixed> $data
-     * @param string $field
-     * @param string $context
-     * @return string|null
+     * @param  array<string, mixed>  $data
      */
     private function optionalNullableString(array $data, string $field, string $context): ?string
     {
@@ -176,9 +179,7 @@ class NormalizeAnalysisResultAction
     /**
      * Read a required array field whose values must all be strings.
      *
-     * @param array<string, mixed> $data
-     * @param string $field
-     * @param string $context
+     * @param  array<string, mixed>  $data
      * @return list<string>
      */
     private function requiredStringArray(array $data, string $field, string $context): array
@@ -199,7 +200,7 @@ class NormalizeAnalysisResultAction
     /**
      * Read a table's required "rows": an array of arrays of strings.
      *
-     * @param array<string, mixed> $item
+     * @param  array<string, mixed>  $item
      * @return list<list<string>>
      */
     private function requiredRows(array $item): array
@@ -231,8 +232,7 @@ class NormalizeAnalysisResultAction
      * Read a recommendation's "priority": one of "high"/"medium"/"low", or
      * null (missing and explicit null both normalize to null).
      *
-     * @param array<string, mixed> $item
-     * @return string|null
+     * @param  array<string, mixed>  $item
      */
     private function recommendationPriority(array $item): ?string
     {
@@ -252,8 +252,7 @@ class NormalizeAnalysisResultAction
     /**
      * Read an optional array-of-strings section, defaulting to an empty list.
      *
-     * @param array<string, mixed> $decoded
-     * @param string $key
+     * @param  array<string, mixed>  $decoded
      * @return list<string>
      */
     private function stringList(array $decoded, string $key): array
@@ -287,9 +286,8 @@ class NormalizeAnalysisResultAction
      * $normalizeItem extracts end up in the output, consistent with how
      * unknown top-level keys are also dropped (see execute()).
      *
-     * @param array<string, mixed> $decoded
-     * @param string $key
-     * @param callable(array<string, mixed>): array<string, mixed> $normalizeItem
+     * @param  array<string, mixed>  $decoded
+     * @param  callable(array<string, mixed>): array<string, mixed>  $normalizeItem
      * @return list<array<string, mixed>>
      */
     private function objectList(array $decoded, string $key, callable $normalizeItem): array

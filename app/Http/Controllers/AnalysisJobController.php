@@ -19,6 +19,7 @@ use App\Jobs\ExecuteAnalysisJob;
 use App\Models\AnalysisJob;
 use App\Models\DataFile;
 use App\Models\Project;
+use App\Queries\ActionProposal\GetControlledActionViewDataQuery;
 use Illuminate\Contracts\View\View;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Support\Facades\DB;
@@ -88,8 +89,16 @@ class AnalysisJobController extends Controller
         Project $project,
         AnalysisJob $analysisJob,
         DetermineDiagnosisEligibilityAction $determineDiagnosisEligibilityAction,
+        GetControlledActionViewDataQuery $getControlledActionViewDataQuery,
     ): View {
-        $analysisJob->loadMissing(['dataFile', 'analysisJobDetail', 'evaluationFacts.diagnosisResult', 'evaluationFacts.priorityResult']);
+        $analysisJob->loadMissing([
+            'dataFile',
+            'analysisJobDetail',
+            'evaluationFacts.diagnosisResult',
+            'evaluationFacts.priorityResult',
+            'actionProposals.evaluationFact',
+            'actionProposals.priorityResult',
+        ]);
 
         $this->ensureAnalysisJobBelongsToProject($project, $analysisJob);
 
@@ -105,8 +114,15 @@ class AnalysisJobController extends Controller
         }
 
         $priorityEligibility = $diagnosisEligibility;
+        $controlledActionViewData = $getControlledActionViewDataQuery->execute($analysisJob);
 
-        return view('analysis-jobs.show', compact('project', 'analysisJob', 'diagnosisEligibility', 'priorityEligibility'));
+        return view('analysis-jobs.show', compact(
+            'project',
+            'analysisJob',
+            'diagnosisEligibility',
+            'priorityEligibility',
+            'controlledActionViewData',
+        ));
     }
 
     /**

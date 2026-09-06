@@ -4,7 +4,9 @@ declare(strict_types=1);
 
 namespace Tests\Feature\AnalysisJob;
 
+use App\Actions\ActionProposal\RunActionProposalForAnalysisJobAction;
 use App\Actions\AnalysisJob\ExecuteAnalysisJobAction;
+use App\Actions\Diagnosis\RunDiagnosisForAnalysisJobAction;
 use App\AI\AiAnalysisClient;
 use App\Enums\AnalysisJobStatus;
 use App\Models\AnalysisJob;
@@ -279,5 +281,26 @@ class ExecuteAnalysisJobDiagnosisTest extends TestCase
         $this->assertSame(AnalysisJobStatus::Completed, $analysisJob->status);
         $this->assertNull($analysisJob->analysisJobDetail->error_message);
         $this->assertSame(0, DiagnosisResult::query()->where('analysis_job_id', $analysisJob->analysis_job_id)->count());
+    }
+
+    public function test_an_orchestration_level_diagnosis_failure_skips_controlled_action(): void
+    {
+        [, $analysisJob] = $this->createPendingAnalysisJob(self::AD_PERFORMANCE_CSV, 'ad_performance');
+        $mapResponse = json_encode(['mappings' => [
+            ['field' => 'channel', 'column' => 'channel', 'confidence' => 'high'],
+            ['field' => 'conversions', 'column' => 'conversions', 'confidence' => 'high'],
+            ['field' => 'clicks', 'column' => 'clicks', 'confidence' => 'high'],
+        ]], JSON_THROW_ON_ERROR);
+        $this->mock(AiAnalysisClient::class)
+            ->shouldReceive('mapColumns')->once()->andReturn($mapResponse)
+            ->shouldReceive('planMetrics')->once()->andReturn($this->emptyPlanResponse())
+            ->shouldReceive('analyze')->once()->andReturn(json_encode($this->structuredResult(), JSON_THROW_ON_ERROR));
+        $this->mock(RunDiagnosisForAnalysisJobAction::class)
+            ->shouldReceive('execute')->once()->andThrow(new \RuntimeException('diagnosis query failed'));
+        $this->mock(RunActionProposalForAnalysisJobAction::class)->shouldNotReceive('execute');
+
+        app(ExecuteAnalysisJobAction::class)->execute($analysisJob->analysis_job_id);
+
+        $this->assertSame(AnalysisJobStatus::Completed, $analysisJob->refresh()->status);
     }
 }

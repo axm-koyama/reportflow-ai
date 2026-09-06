@@ -1,0 +1,101 @@
+{
+  "timestamp": "2026-09-06T04:21:16.791Z",
+  "synthetic_data_only": true,
+  "credential_scan": "No credentials, headers, personal data, or customer data included.",
+  "screenshots": [
+    "measurement.png",
+    "insufficient.png",
+    "not_applicable.png",
+    "no_eligible.png",
+    "eligible_no_proposal.png",
+    "free_regression.png",
+    "non_decision_regression.png"
+  ],
+  "checks": {
+    "measurement": {
+      "controlled_action_buttons": 0,
+      "controlled_action_forms": 0,
+      "controlled_action_links": 0,
+      "controlled_actions_html": "\n            <h2>Controlled Actions</h2>\n                            <article>\n                    <h3>Review measurement consistency for synthetic zero conversion</h3>\n                    <p><span class=\"badge\">Advisory only — not executed</span></p>\n                    <dl class=\"metadata\">\n                        <dt>Catalog</dt>\n                        <dd>Verify measurement consistency</dd>\n                        <dt>Target</dt>\n                        <dd>Synthetic Zero Conversion / Conversion rate</dd>\n                        <dt>確認優先度</dt>\n                        <dd>\n                            <span class=\"badge badge-high\">High</span>\n                            <span class=\"hint\">\n                                流量影響 50.0% /\n                                比較対照との差 6.00pp\n                            </span>\n                        </dd>\n                    </dl>\n                    <p>Zero conversions with sufficient synthetic traffic and a high-priority measurement consistency risk suggest reviewing whether the observed conversion rate is being measured consistently. This is advisory only and does not confirm a tracking failure.</p>\n                    <p class=\"hint\">Evidence: evaluation_fact:165 / diagnosis_result:35 / priority_result:21</p>\n                                            <p class=\"hint\">Checks: verify_event_definition / verify_tag_firing / verify_time_window / verify_source_completeness</p>\n                                                        </article>\n                    ",
+      "controlled_actions_text": "Controlled Actions\nReview measurement consistency for synthetic zero conversion\n\nAdvisory only — not executed\n\nCatalog\nVerify measurement consistency\nTarget\nSynthetic Zero Conversion / Conversion rate\n確認優先度\n\n                            High\n                            \n                                流量影響 50.0% /\n                                比較対照との差 6.00pp\n                            \n                        \n\nZero conversions with sufficient synthetic traffic and a high-priority measurement consistency risk suggest reviewing whether the observed conversion rate is being measured consistently. This is advisory only and does not confirm a tracking failure.\n\nEvidence: evaluation_fact:165 / diagnosis_result:35 / priority_result:21\n\nChecks: verify_event_definition / verify_tag_firing / verify_time_window / verify_source_completeness",
+      "forbidden_labels_present": [],
+      "raw_priority_score_present": false,
+      "raw_response_marker_present": false,
+      "recommendations_text": null,
+      "title": "PV measurement_consistency_candidate"
+    },
+    "insufficient": {
+      "controlled_action_buttons": 0,
+      "controlled_action_forms": 0,
+      "controlled_action_links": 0,
+      "controlled_actions_html": "\n            <h2>Controlled Actions</h2>\n                            <article>\n                    <h3>Collect explanatory evidence for low conversion performance</h3>\n                    <p><span class=\"badge\">Advisory only — not executed</span></p>\n                    <dl class=\"metadata\">\n                        <dt>Catalog</dt>\n                        <dd>Collect explanatory evidence</dd>\n                        <dt>Target</dt>\n                        <dd>Synthetic Low Conversion / Conversion rate</dd>\n                        <dt>確認優先度</dt>\n                        <dd>\n                            <span class=\"badge badge-high\">High</span>\n                            <span class=\"hint\">\n                                流量影響 50.0% /\n                                比較対照との差 6.00pp\n                            </span>\n                        </dd>\n                    </dl>\n                    <p>The observed low conversion rate is flagged as high priority, but the diagnosis indicates insufficient explanatory evidence to determine why the synthetic entity is underperforming. Additional evidence is needed before any cause-specific action can be considered.</p>\n                    <p class=\"hint\">Evidence: evaluation_fact:166 / diagnosis_result:36 / priority_result:22</p>\n                                                                <p class=\"hint\">Missing evidence: channel-level audience composition</p>\n                                    </article>\n                    ",
+      "controlled_actions_text": "Controlled Actions\nCollect explanatory evidence for low conversion performance\n\nAdvisory only — not executed\n\nCatalog\nCollect explanatory evidence\nTarget\nSynthetic Low Conversion / Conversion rate\n確認優先度\n\n                            High\n                            \n                                流量影響 50.0% /\n                                比較対照との差 6.00pp\n                            \n                        \n\nThe observed low conversion rate is flagged as high priority, but the diagnosis indicates insufficient explanatory evidence to determine why the synthetic entity is underperforming. Additional evidence is needed before any cause-specific action can be considered.\n\nEvidence: evaluation_fact:166 / diagnosis_result:36 / priority_result:22\n\nMissing evidence: channel-level audience composition",
+      "forbidden_labels_present": [],
+      "raw_priority_score_present": false,
+      "raw_response_marker_present": false,
+      "recommendations_text": null,
+      "title": "PV insufficient_explanation_candidate"
+    },
+    "not_applicable": {
+      "controlled_action_buttons": 0,
+      "controlled_action_forms": 0,
+      "controlled_action_links": 0,
+      "controlled_actions_html": "\n            <h2>Controlled Actions</h2>\n                            <p>No controlled action proposal was generated.</p>\n                                    <p class=\"hint\">Controlled Actions are not applicable to this analysis.</p>\n                                    ",
+      "controlled_actions_text": "Controlled Actions\n\nNo controlled action proposal was generated.\n\nControlled Actions are not applicable to this analysis.",
+      "forbidden_labels_present": [],
+      "raw_priority_score_present": false,
+      "raw_response_marker_present": false,
+      "recommendations_text": null,
+      "title": "PV UI not applicable"
+    },
+    "no_eligible": {
+      "controlled_action_buttons": 0,
+      "controlled_action_forms": 0,
+      "controlled_action_links": 0,
+      "controlled_actions_html": "\n            <h2>Controlled Actions</h2>\n                            <p>No controlled action proposal was generated.</p>\n                                    <p class=\"hint\">No evidence currently meets the controlled eligibility contract.</p>\n                                    ",
+      "controlled_actions_text": "Controlled Actions\n\nNo controlled action proposal was generated.\n\nNo evidence currently meets the controlled eligibility contract.",
+      "forbidden_labels_present": [],
+      "raw_priority_score_present": false,
+      "raw_response_marker_present": false,
+      "recommendations_text": null,
+      "title": "PV UI no eligible candidate"
+    },
+    "eligible_no_proposal": {
+      "controlled_action_buttons": 0,
+      "controlled_action_forms": 0,
+      "controlled_action_links": 0,
+      "controlled_actions_html": "\n            <h2>Controlled Actions</h2>\n                            <p>No controlled action proposal was generated.</p>\n                                    <p class=\"hint\">Eligible evidence existed, but proposals are best-effort output and may be unavailable.</p>\n                                    ",
+      "controlled_actions_text": "Controlled Actions\n\nNo controlled action proposal was generated.\n\nEligible evidence existed, but proposals are best-effort output and may be unavailable.",
+      "forbidden_labels_present": [],
+      "raw_priority_score_present": false,
+      "raw_response_marker_present": false,
+      "recommendations_text": null,
+      "title": "PV UI eligible without proposal"
+    },
+    "free_regression": {
+      "controlled_action_buttons": 0,
+      "controlled_action_forms": 0,
+      "controlled_action_links": 0,
+      "controlled_actions_html": "\n            <h2>Controlled Actions</h2>\n                            <p>No controlled action proposal was generated.</p>\n                                    <p class=\"hint\">Controlled Actions are not applicable to this analysis.</p>\n                                    ",
+      "controlled_actions_text": "Controlled Actions\n\nNo controlled action proposal was generated.\n\nControlled Actions are not applicable to this analysis.",
+      "forbidden_labels_present": [],
+      "raw_priority_score_present": false,
+      "raw_response_marker_present": false,
+      "recommendations_text": "Recommendations\nReview synthetic report\n\nLegacy recommendation remains visible.\n\nPriority: low",
+      "title": "PV free analysis regression"
+    },
+    "non_decision_regression": {
+      "controlled_action_buttons": 0,
+      "controlled_action_forms": 0,
+      "controlled_action_links": 0,
+      "controlled_actions_html": "\n            <h2>Controlled Actions</h2>\n                            <p>No controlled action proposal was generated.</p>\n                                    <p class=\"hint\">Controlled Actions are not applicable to this analysis.</p>\n                                    ",
+      "controlled_actions_text": "Controlled Actions\n\nNo controlled action proposal was generated.\n\nControlled Actions are not applicable to this analysis.",
+      "forbidden_labels_present": [],
+      "raw_priority_score_present": false,
+      "raw_response_marker_present": false,
+      "recommendations_text": "Recommendations\nReview synthetic report\n\nLegacy recommendation remains visible.\n\nPriority: low",
+      "title": "PV non-decision template regression"
+    }
+  },
+  "result": "PASS"
+}

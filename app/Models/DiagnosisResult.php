@@ -8,6 +8,7 @@ use Database\Factories\DiagnosisResultFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Support\Carbon;
 
 /**
@@ -112,5 +113,10 @@ class DiagnosisResult extends Model
     public function evaluationFact(): BelongsTo
     {
         return $this->belongsTo(EvaluationFact::class, 'evaluation_fact_id', 'evaluation_fact_id');
+    }
+
+    public function actionProposal(): HasOne
+    {
+        return $this->hasOne(ActionProposal::class, 'diagnosis_result_id', 'diagnosis_result_id');
     }
 }

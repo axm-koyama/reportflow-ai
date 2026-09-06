@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Tests\Feature\AnalysisJob;
 
+use App\Actions\ActionProposal\RunActionProposalForAnalysisJobAction;
 use App\Actions\AnalysisJob\ExecuteAnalysisJobAction;
 use App\Actions\Priority\CalculatePriorityAction;
 use App\AI\AiAnalysisClient;
@@ -215,6 +216,7 @@ class ExecuteAnalysisJobPriorityTest extends TestCase
         $this->mock(CalculatePriorityAction::class)
             ->shouldReceive('execute')
             ->andThrow(new RuntimeException('simulated technical failure inside CalculatePriorityAction'));
+        $this->mock(RunActionProposalForAnalysisJobAction::class)->shouldNotReceive('execute');
 
         app(ExecuteAnalysisJobAction::class)->execute($analysisJob->analysis_job_id);
 

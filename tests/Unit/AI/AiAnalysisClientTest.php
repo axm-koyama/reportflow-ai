@@ -1024,6 +1024,73 @@ class AiAnalysisClientTest extends TestCase
         ];
     }
 
+    public function test_propose_action_sends_only_the_evidence_package_with_request_specific_enums(): void
+    {
+        $payload = null;
+        $output = json_encode([
+            'catalog_key' => 'verify_measurement_consistency',
+            'title' => 'Verify measurement',
+            'rationale_summary' => 'Worth checking.',
+            'selected_checks' => ['verify_tag_firing'],
+            'evidence_refs' => ['evaluation_fact:10'],
+            'missing_evidence' => [],
+        ], JSON_THROW_ON_ERROR);
+
+        Http::fake(function (Request $request) use (&$payload, $output) {
+            $payload = json_decode($request->body(), true, flags: JSON_THROW_ON_ERROR);
+
+            return Http::response($this->completedResponse($output));
+        });
+
+        $package = $this->actionEvidencePackage();
+        $result = (new AiAnalysisClient)->proposeAction([
+            'system_instruction' => 'Advisory only.',
+            'evidence_package' => $package,
+        ]);
+
+        $this->assertSame($output, $result);
+        $this->assertSame($package, json_decode($payload['input'][0]['content'][0]['text'], true, flags: JSON_THROW_ON_ERROR));
+        $this->assertSame(['verify_measurement_consistency'], $payload['text']['format']['schema']['properties']['catalog_key']['enum']);
+        $this->assertSame(['verify_tag_firing'], $payload['text']['format']['schema']['properties']['selected_checks']['items']['enum']);
+        $this->assertSame($package['allowed_evidence_refs'], $payload['text']['format']['schema']['properties']['evidence_refs']['items']['enum']);
+        $this->assertSame(1, $payload['text']['format']['schema']['properties']['evidence_refs']['minItems']);
+        $this->assertArrayNotHasKey('uniqueItems', $payload['text']['format']['schema']['properties']['selected_checks']);
+        $this->assertArrayNotHasKey('maxLength', $payload['text']['format']['schema']['properties']['title']);
+    }
+
+    public function test_collect_evidence_schema_does_not_emit_an_empty_selected_check_enum(): void
+    {
+        $payload = null;
+        Http::fake(function (Request $request) use (&$payload) {
+            $payload = json_decode($request->body(), true, flags: JSON_THROW_ON_ERROR);
+
+            return Http::response($this->completedResponse('{}'));
+        });
+
+        $package = $this->actionEvidencePackage();
+        $package['action_catalog_key'] = 'collect_explanatory_evidence';
+        $package['allowed_checks'] = [];
+
+        (new AiAnalysisClient)->proposeAction(['system_instruction' => 'Advisory only.', 'evidence_package' => $package]);
+
+        $this->assertArrayNotHasKey('enum', $payload['text']['format']['schema']['properties']['selected_checks']['items']);
+    }
+
+    /** @return array<string, mixed> */
+    private function actionEvidencePackage(): array
+    {
+        return [
+            'analysis_job_id' => 1,
+            'action_catalog_key' => 'verify_measurement_consistency',
+            'trigger_fact' => ['evaluation_fact_id' => 10],
+            'diagnosis' => ['diagnosis_result_id' => 20, 'missing_evidence' => []],
+            'priority' => ['priority_result_id' => 30],
+            'allowed_checks' => ['verify_tag_firing'],
+            'allowed_evidence_refs' => ['evaluation_fact:10', 'diagnosis_result:20', 'priority_result:30'],
+            'contract_version' => 'action_contract_v1',
+        ];
+    }
+
     /**
      * @return array<string, mixed>
      */

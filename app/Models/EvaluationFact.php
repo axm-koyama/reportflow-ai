@@ -53,6 +53,7 @@ use Illuminate\Support\Carbon;
  * @property-read AnalysisJob $analysisJob
  * @property-read DiagnosisResult|null $diagnosisResult
  * @property-read PriorityResult|null $priorityResult
+ * @property-read ActionProposal|null $actionProposal
  */
 class EvaluationFact extends Model
 {
@@ -154,5 +155,10 @@ class EvaluationFact extends Model
     public function priorityResult(): HasOne
     {
         return $this->hasOne(PriorityResult::class, 'evaluation_fact_id', 'evaluation_fact_id');
+    }
+
+    public function actionProposal(): HasOne
+    {
+        return $this->hasOne(ActionProposal::class, 'evaluation_fact_id', 'evaluation_fact_id');
     }
 }
