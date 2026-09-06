@@ -4,8 +4,8 @@
 > `Facts → Evaluation → Diagnosis → Priority → Action` という5層の
 > Target Architectureとして設計参考資料が存在する(docs/product/EVALUATION_ENGINE.md
 > / docs/product/DIAGNOSIS_ENGINE.md 冒頭も参照)。今回実装したのは
-> `Priority`層のみであり、Actionは**一切実装していない**(§16 "Phase 4-C
-> v1対象外"を参照)。
+> `Priority`層のみであった。Controlled Action Layer v1は後続のPhase 4-Dで
+> 実装済み — docs/product/CONTROLLED_ACTION_LAYER.md参照。
 >
 > **v1.1 revision note**: commit前レビューでGap算出基準の問題
 > (自己希釈、§8-1)が指摘され、`gap_raw_value`の基準を

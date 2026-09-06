@@ -5,22 +5,67 @@ declare(strict_types=1);
 namespace Tests\Unit\Actions\AnalysisJob;
 
 use App\Actions\AnalysisJob\NormalizeAnalysisResultAction;
+use Illuminate\Support\Facades\Log;
 use InvalidArgumentException;
-use PHPUnit\Framework\TestCase;
+use Tests\TestCase;
 
 class NormalizeAnalysisResultActionTest extends TestCase
 {
     /**
-     * @param array<string, mixed> $data
+     * @param  array<string, mixed>  $data
      */
     private function encode(array $data): string
     {
         return json_encode($data, JSON_THROW_ON_ERROR);
     }
 
-    private function execute(string $rawResponse): array
+    private function execute(string $rawResponse, bool $decisionEnabled = false): array
     {
-        return (new NormalizeAnalysisResultAction)->execute($rawResponse);
+        return (new NormalizeAnalysisResultAction)->execute($rawResponse, $decisionEnabled);
+    }
+
+    public function test_decision_enabled_analysis_strips_valid_legacy_recommendations_and_logs_warning(): void
+    {
+        Log::shouldReceive('warning')
+            ->once()
+            ->with(
+                'NormalizeAnalysisResultAction: stripped legacy recommendations from a Decision-enabled analysis.',
+                ['recommendation_count' => 1],
+            );
+
+        $result = $this->execute($this->encode([
+            'summary' => 'Summary',
+            'recommendations' => [
+                ['title' => 'Legacy', 'description' => 'Legacy prose.', 'priority' => 'high'],
+            ],
+        ]), true);
+
+        $this->assertSame([], $result['recommendations']);
+    }
+
+    public function test_non_decision_enabled_analysis_preserves_valid_legacy_recommendations(): void
+    {
+        Log::shouldReceive('warning')->never();
+
+        $result = $this->execute($this->encode([
+            'summary' => 'Summary',
+            'recommendations' => [
+                ['title' => 'Legacy', 'description' => 'Legacy prose.', 'priority' => 'high'],
+            ],
+        ]));
+
+        $this->assertCount(1, $result['recommendations']);
+    }
+
+    public function test_decision_enabled_analysis_still_rejects_a_malformed_recommendation(): void
+    {
+        Log::shouldReceive('warning')->never();
+        $this->expectException(InvalidArgumentException::class);
+
+        $this->execute($this->encode([
+            'summary' => 'Summary',
+            'recommendations' => [['title' => 'Missing description']],
+        ]), true);
     }
 
     /**

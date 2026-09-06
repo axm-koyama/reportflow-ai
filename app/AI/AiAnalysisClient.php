@@ -64,13 +64,13 @@ class AiAnalysisClient
     /**
      * Send an analysis context to OpenAI and return its structured output JSON.
      *
-     * @param array<string, mixed> $context
-     * @return string
+     * @param  array<string, mixed>  $context
+     *
      * @throws RuntimeException if the API key is not configured, the AI
-     *                           Context cannot be encoded as JSON, the
-     *                           request fails (connection error or
-     *                           non-2xx status), or the response does not
-     *                           contain a usable structured output.
+     *                          Context cannot be encoded as JSON, the
+     *                          request fails (connection error or
+     *                          non-2xx status), or the response does not
+     *                          contain a usable structured output.
      */
     public function analyze(array $context): string
     {
@@ -218,14 +218,14 @@ class AiAnalysisClient
      * is nonCompletedStatusMessage(), which analyze() does not need to
      * change to share.
      *
-     * @param array<string, mixed> $context
-     * @return string
+     * @param  array<string, mixed>  $context
+     *
      * @throws RuntimeException if the API key is not configured, the
-     *                           Metric Planning Context cannot be encoded
-     *                           as JSON, the request fails (connection
-     *                           error or non-2xx status), or the response
-     *                           does not contain a usable structured
-     *                           output.
+     *                          Metric Planning Context cannot be encoded
+     *                          as JSON, the request fails (connection
+     *                          error or non-2xx status), or the response
+     *                          does not contain a usable structured
+     *                          output.
      */
     public function planMetrics(array $context): string
     {
@@ -371,14 +371,14 @@ class AiAnalysisClient
      * subtle regression there for a modest amount of shared code.
      * nonCompletedStatusMessage() is the one exception, reused as-is.
      *
-     * @param array<string, mixed> $context
-     * @return string
+     * @param  array<string, mixed>  $context
+     *
      * @throws RuntimeException if the API key is not configured, the
-     *                           Column Mapping Context cannot be encoded
-     *                           as JSON, the request fails (connection
-     *                           error or non-2xx status), or the response
-     *                           does not contain a usable structured
-     *                           output.
+     *                          Column Mapping Context cannot be encoded
+     *                          as JSON, the request fails (connection
+     *                          error or non-2xx status), or the response
+     *                          does not contain a usable structured
+     *                          output.
      */
     public function mapColumns(array $context): string
     {
@@ -529,13 +529,13 @@ class AiAnalysisClient
      * shared code. nonCompletedStatusMessage() is the one exception,
      * reused as-is.
      *
-     * @param array<string, mixed> $context
-     * @return string
+     * @param  array<string, mixed>  $context
+     *
      * @throws RuntimeException if the API key is not configured, the
-     *                           Diagnosis Context cannot be encoded as
-     *                           JSON, the request fails (connection error
-     *                           or non-2xx status), or the response does
-     *                           not contain a usable structured output.
+     *                          Diagnosis Context cannot be encoded as
+     *                          JSON, the request fails (connection error
+     *                          or non-2xx status), or the response does
+     *                          not contain a usable structured output.
      */
     public function diagnose(array $context): string
     {
@@ -655,15 +655,121 @@ class AiAnalysisClient
     }
 
     /**
+     * Send one controlled Action Evidence Package to OpenAI.
+     *
+     * @param  array{system_instruction: string, evidence_package: array<string, mixed>}  $context
+     */
+    public function proposeAction(array $context): string
+    {
+        $apiKey = config('services.openai.key');
+
+        if (! is_string($apiKey) || $apiKey === '') {
+            throw new RuntimeException('OpenAI API key is not configured.');
+        }
+
+        $package = $context['evidence_package'];
+
+        try {
+            $inputText = json_encode($package, JSON_THROW_ON_ERROR);
+        } catch (JsonException $exception) {
+            throw new RuntimeException('Failed to encode Action Evidence Package as JSON.', previous: $exception);
+        }
+
+        try {
+            $response = Http::withToken($apiKey)
+                ->timeout((int) config('services.openai.timeout'))
+                ->post((string) config('services.openai.responses_url'), [
+                    'model' => config('services.openai.model'),
+                    'store' => false,
+                    'instructions' => $context['system_instruction'],
+                    'input' => [[
+                        'role' => 'user',
+                        'content' => [[
+                            'type' => 'input_text',
+                            'text' => $inputText,
+                        ]],
+                    ]],
+                    'text' => [
+                        'format' => [
+                            'type' => 'json_schema',
+                            'name' => 'reportflow_action_proposal',
+                            'strict' => true,
+                            'schema' => $this->actionProposalSchema($package),
+                        ],
+                    ],
+                ]);
+        } catch (ConnectionException $exception) {
+            throw new RuntimeException('OpenAI API request failed due to a connection error.', previous: $exception);
+        }
+
+        if (! $response->successful()) {
+            throw new RuntimeException("OpenAI API request failed with HTTP status {$response->status()}.");
+        }
+
+        $responseBody = $response->json();
+
+        if (! is_array($responseBody)) {
+            throw new RuntimeException('OpenAI response had an unexpected shape.');
+        }
+
+        $status = $responseBody['status'] ?? null;
+
+        if ($status === 'incomplete') {
+            throw new RuntimeException('OpenAI response was incomplete.');
+        }
+
+        if ($status !== 'completed') {
+            throw new RuntimeException($this->nonCompletedStatusMessage($responseBody, $status));
+        }
+
+        $output = $responseBody['output'] ?? null;
+
+        if (! is_array($output)) {
+            throw new RuntimeException('OpenAI response had an unexpected shape.');
+        }
+
+        foreach ($output as $outputItem) {
+            if (! is_array($outputItem)) {
+                throw new RuntimeException('OpenAI response had an unexpected shape.');
+            }
+
+            if (($outputItem['type'] ?? null) !== 'message') {
+                continue;
+            }
+
+            $content = $outputItem['content'] ?? null;
+
+            if (! is_array($content)) {
+                throw new RuntimeException('OpenAI response had an unexpected shape.');
+            }
+
+            foreach ($content as $contentItem) {
+                if (! is_array($contentItem)) {
+                    throw new RuntimeException('OpenAI response had an unexpected shape.');
+                }
+
+                if (($contentItem['type'] ?? null) === 'refusal') {
+                    throw new RuntimeException('OpenAI refused the action proposal request.');
+                }
+
+                if (($contentItem['type'] ?? null) === 'output_text'
+                    && is_string($contentItem['text'] ?? null)) {
+                    return $contentItem['text'];
+                }
+            }
+        }
+
+        throw new RuntimeException('OpenAI response did not contain structured output.');
+    }
+
+    /**
      * Build the diagnostic message for a non-completed Responses API
      * status. Only `status` and `error.code` are included — never
      * `error.message`, since a provider-authored error message is not
      * guaranteed to exclude echoed request content (User Prompt / Data
      * Profile), and this message may end up in exception traces or logs.
      *
-     * @param array<string, mixed> $responseBody
-     * @param mixed $status
-     * @return string
+     * @param  array<string, mixed>  $responseBody
      */
     private function nonCompletedStatusMessage(array $responseBody, mixed $status): string
     {
@@ -827,12 +933,12 @@ class AiAnalysisClient
      * value, for a constraint Laravel already enforces safely after the
      * fact. See docs/product/DERIVED_METRICS.md "max_derived_metrics".
      *
-     * @param list<string> $availableDimensions this request's Planning
-     *        Context "available_dimensions" (always non-empty in
-     *        practice — PlanDerivedMetricsAction never calls planMetrics()
-     *        when aggregated_metrics has no dimensions at all). Left
-     *        unconstrained (no "enum") if empty, defensively, so this
-     *        never produces a JSON Schema no response could ever satisfy.
+     * @param  list<string>  $availableDimensions  this request's Planning
+     *                                             Context "available_dimensions" (always non-empty in
+     *                                             practice — PlanDerivedMetricsAction never calls planMetrics()
+     *                                             when aggregated_metrics has no dimensions at all). Left
+     *                                             unconstrained (no "enum") if empty, defensively, so this
+     *                                             never produces a JSON Schema no response could ever satisfy.
      * @return array<string, mixed>
      */
     private function derivedMetricsPlanSchema(array $availableDimensions): array
@@ -943,11 +1049,11 @@ class AiAnalysisClient
      * derivedMetricsPlanSchema()'s $availableDimensions handling — never
      * producing a JSON Schema no response could ever satisfy.
      *
-     * "evidence_refs"/"missing_evidence" are plain string arrays: no
-     * "enum" is applied to evidence_refs' contents, since a JSON Schema
-     * enum cannot express "any subset of this specific request's supplied
-     * evidence identifiers" (a *set membership per element* constraint,
-     * not a fixed value set with a bounded item count). evidence_refs
+     * "evidence_refs"/"missing_evidence" remain plain string arrays in
+     * the legacy Diagnosis contract. Phase 4-D's separate Action schema
+     * uses items.enum for request-specific reference membership; changing
+     * this older Diagnosis schema is outside that implementation scope.
+     * evidence_refs
      * does carry "minItems: 1" — confirmed (via a standalone probe
      * request) to be honored by the OpenAI Responses API in strict mode,
      * so this is a genuine first line of defense against an empty
@@ -960,7 +1066,7 @@ class AiAnalysisClient
      * — see that class's docblock and docs/product/DIAGNOSIS_ENGINE.md
      * "Structured Output != Semantic Correctness".
      *
-     * @param list<string> $allowedCategories
+     * @param  list<string>  $allowedCategories
      * @return array<string, mixed>
      */
     private function diagnosisResultSchema(array $allowedCategories): array
@@ -1001,6 +1107,61 @@ class AiAnalysisClient
                 ],
             ],
             'required' => ['primary_diagnosis'],
+            'additionalProperties' => false,
+        ];
+    }
+
+    /**
+     * @param  array<string, mixed>  $package
+     * @return array<string, mixed>
+     */
+    private function actionProposalSchema(array $package): array
+    {
+        $selectedChecks = ['type' => 'string'];
+        $allowedChecks = $package['allowed_checks'] ?? [];
+
+        if (is_array($allowedChecks) && $allowedChecks !== []) {
+            $selectedChecks['enum'] = array_values($allowedChecks);
+        }
+
+        $evidenceRef = ['type' => 'string'];
+        $allowedEvidenceRefs = $package['allowed_evidence_refs'] ?? [];
+
+        if (is_array($allowedEvidenceRefs) && $allowedEvidenceRefs !== []) {
+            $evidenceRef['enum'] = array_values($allowedEvidenceRefs);
+        }
+
+        return [
+            'type' => 'object',
+            'properties' => [
+                'catalog_key' => [
+                    'type' => 'string',
+                    'enum' => [(string) ($package['action_catalog_key'] ?? '')],
+                ],
+                'title' => ['type' => 'string'],
+                'rationale_summary' => ['type' => 'string'],
+                'selected_checks' => [
+                    'type' => 'array',
+                    'items' => $selectedChecks,
+                ],
+                'evidence_refs' => [
+                    'type' => 'array',
+                    'items' => $evidenceRef,
+                    'minItems' => 1,
+                ],
+                'missing_evidence' => [
+                    'type' => 'array',
+                    'items' => ['type' => 'string'],
+                ],
+            ],
+            'required' => [
+                'catalog_key',
+                'title',
+                'rationale_summary',
+                'selected_checks',
+                'evidence_refs',
+                'missing_evidence',
+            ],
             'additionalProperties' => false,
         ];
     }

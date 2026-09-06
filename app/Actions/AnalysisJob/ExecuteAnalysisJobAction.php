@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Actions\AnalysisJob;
 
+use App\Actions\ActionProposal\RunActionProposalForAnalysisJobAction;
 use App\Actions\DataProfiling\DataProfilingAction;
 use App\Actions\DataProfiling\MetricAggregationAction;
 use App\Actions\Diagnosis\RunDiagnosisForAnalysisJobAction;
@@ -65,6 +66,10 @@ use Throwable;
  *                                    genuine orchestration-level failure, at this call site too — see
  *                                    below and docs/product/DIAGNOSIS_ENGINE.md. Runs before
  *                                    markCompleted(), never after)
+ *   -> RunActionProposalForAnalysisJobAction (Phase 4-D: persisted Evaluation, Diagnosis,
+ *                                    and Priority chain -> best-effort advisory ActionProposal;
+ *                                    only when all three upstream orchestration steps succeeded
+ *                                    in this attempt; soft-fails before completion)
  *   -> markCompleted()
  *
  * EvaluateAnalysisJobAction never changes the AI call count above (it
@@ -184,6 +189,7 @@ class ExecuteAnalysisJobAction
         private readonly AiAnalysisClient $aiAnalysisClient,
         private readonly NormalizeAnalysisResultAction $normalizeAnalysisResultAction,
         private readonly RunDiagnosisForAnalysisJobAction $runDiagnosisForAnalysisJobAction,
+        private readonly RunActionProposalForAnalysisJobAction $runActionProposalForAnalysisJobAction,
     ) {}
 
     /**
@@ -366,9 +372,12 @@ class ExecuteAnalysisJobAction
         // first place (see EvaluateRateMetricAction /
         // ResolveEvaluationMetricDefinitionsAction) — only a genuine bug
         // reaches this catch.
+        $evaluationSucceeded = true;
+
         try {
             $this->evaluateAnalysisJobAction->execute($analysisJob, $aggregatedMetrics);
         } catch (Throwable $evaluationException) {
+            $evaluationSucceeded = false;
             Log::error('EvaluateAnalysisJobAction: technical failure — continuing the analysis pipeline without Evaluation Facts.', [
                 'analysis_job_id' => $analysisJob->analysis_job_id,
                 'template_key' => $analysisJob->template_key,
@@ -417,9 +426,12 @@ class ExecuteAnalysisJobAction
         // Failed one, and any PriorityResult rows a previous successful
         // attempt left behind must not survive this attempt's failure
         // either (see PrioritizeAnalysisJobAction::clearForAnalysisJob()).
+        $prioritySucceeded = true;
+
         try {
             $this->prioritizeAnalysisJobAction->execute($analysisJob);
         } catch (Throwable $priorityException) {
+            $prioritySucceeded = false;
             Log::error('PrioritizeAnalysisJobAction: technical failure — continuing the analysis pipeline without Priority.', [
                 'analysis_job_id' => $analysisJob->analysis_job_id,
                 'template_key' => $analysisJob->template_key,
@@ -462,7 +474,7 @@ class ExecuteAnalysisJobAction
 
         $rawResponse = $this->aiAnalysisClient->analyze($context);
 
-        $result = $this->normalizeAnalysisResultAction->execute($rawResponse);
+        $result = $this->normalizeAnalysisResultAction->execute($rawResponse, $decisionEnabled);
 
         // Phase 4-B: Controlled Diagnosis. Runs after Final Analyze,
         // before markCompleted() — never after (see
@@ -482,14 +494,37 @@ class ExecuteAnalysisJobAction
         // deletes existing DiagnosisResult rows for this AnalysisJob
         // *before* doing any other work, so no stale row can survive
         // regardless of where a failure strikes afterward.
+        $diagnosisSucceeded = true;
+
         try {
             $this->runDiagnosisForAnalysisJobAction->execute($analysisJob, $aggregatedMetrics);
         } catch (Throwable $diagnosisException) {
+            $diagnosisSucceeded = false;
             Log::error('RunDiagnosisForAnalysisJobAction: technical failure — continuing the analysis pipeline without Diagnosis.', [
                 'analysis_job_id' => $analysisJob->analysis_job_id,
                 'template_key' => $analysisJob->template_key,
                 'exception_class' => $diagnosisException::class,
                 'exception_message' => $diagnosisException->getMessage(),
+            ]);
+        }
+
+        if ($evaluationSucceeded && $prioritySucceeded && $diagnosisSucceeded) {
+            try {
+                $this->runActionProposalForAnalysisJobAction->execute($analysisJob);
+            } catch (Throwable $actionException) {
+                Log::error('RunActionProposalForAnalysisJobAction: technical failure — completing without Controlled Actions.', [
+                    'analysis_job_id' => $analysisJob->analysis_job_id,
+                    'template_key' => $analysisJob->template_key,
+                    'exception_class' => $actionException::class,
+                    'exception_message' => $actionException->getMessage(),
+                ]);
+            }
+        } else {
+            Log::info('RunActionProposalForAnalysisJobAction: skipped because an upstream layer soft-failed in this attempt.', [
+                'analysis_job_id' => $analysisJob->analysis_job_id,
+                'evaluation_succeeded' => $evaluationSucceeded,
+                'priority_succeeded' => $prioritySucceeded,
+                'diagnosis_succeeded' => $diagnosisSucceeded,
             ]);
         }
 

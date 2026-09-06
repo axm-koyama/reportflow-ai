@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Tests\Feature\AnalysisJob;
 
+use App\Actions\ActionProposal\RunActionProposalForAnalysisJobAction;
 use App\Actions\AnalysisJob\BuildAnalysisTemplateColumnCandidatesAction;
 use App\Actions\AnalysisJob\ExecuteAnalysisJobAction;
 use App\Actions\AnalysisJob\ResolveEffectiveColumnMappingAction;
@@ -241,6 +242,7 @@ class ExecuteAnalysisJobEvaluationTest extends TestCase
             ->shouldReceive('clearForAnalysisJob')
             ->once()
             ->with(Mockery::on(fn (AnalysisJob $job): bool => $job->analysis_job_id === $analysisJob->analysis_job_id));
+        $this->mock(RunActionProposalForAnalysisJobAction::class)->shouldNotReceive('execute');
 
         app(ExecuteAnalysisJobAction::class)->execute($analysisJob->analysis_job_id);
 

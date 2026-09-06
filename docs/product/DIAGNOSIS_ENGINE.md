@@ -6,7 +6,8 @@
 > 冒頭も参照)。Phase 4-B時点で実装したのは`Diagnosis`層のみであり、
 > Priority / Actionは実装していなかった(§16 "Phase 4-B v1対象外"を
 > 参照)。**Priority層はPhase 4-Cで実装済み** —
-> docs/product/PRIORITY_ENGINE.md参照。Actionは引き続き未実装。
+> docs/product/PRIORITY_ENGINE.md参照。Controlled Action Layer v1はPhase 4-Dで実装済み —
+> docs/product/CONTROLLED_ACTION_LAYER.md参照。
 
 ## 1. Purpose
 
@@ -147,10 +148,11 @@ Templateだけが対象——v1では`ad_performance`のみ。
 
 - `AiAnalysisClient::openAiResultSchema()`の`recommendations`schemaは
   削除していない。
-- `NormalizeAnalysisResultAction`も変更していない。
+- Phase 4-Dでは`NormalizeAnalysisResultAction`へDecision-enabled情報を渡し、
+  正常形の非空recommendationsを検証後に`[]`へ変換する。
 - `analysis_job_details.result`のJSON構造も不変。
-- Decision-enabledの新規結果は、Rule 27によりAI自身が`recommendations: []`
-  を返す(Laravel側で強制的に書き換える後処理は追加していない)。
+- Decision-enabledの新規結果はRule 27に加え、Laravel側でも
+  `recommendations: []`を決定論的に保証する。非空だった場合はpolicy warningを記録する。
 - 過去に保存されたrecommendations(Free Analysis / sales_analysis /
   Phase 4-B以前のAnalysisJob)はUI上引き続き表示される(§14「Recommendation UI」)。
 
@@ -492,9 +494,8 @@ member判定)がそのまま防ぐ——空文字列`""`はどのentityの`evide
 とも一致しないため)。
 
 ★の検証こそがHallucinated Evidence Rate(§15)を実際に0%へ抑える
-唯一の機構——`evidence_refs`はJSON Schema enumで表現できない
-(「このリクエストが供給した識別子の任意の部分集合」は固定enumでは
-書けない)ため、Laravel側の検証が必須。
+最終的な機構である。配列要素のallow-listは`items.enum`でも表現できるが、
+Laravel側の再検証はprovider schemaだけに依存しないため引き続き必須。
 
 "Structured Output + Laravel post-validation + Evidence gating"の3層
 防御(`docs/product/DIAGNOSIS_ENGINE.md`自身がこの設計方針を示す
@@ -661,7 +662,8 @@ OpenAI依存を1箇所に閉じ込める設計思想と整合)。
 
 ## 16. Phase 4-B v1対象外(Future Scope)
 
-- ~~Priority Engine~~ → **Phase 4-Cで実装済み**(docs/product/PRIORITY_ENGINE.md)。Action Catalog / Action AIは引き続き未実装。
+- ~~Priority Engine~~ → **Phase 4-Cで実装済み**(docs/product/PRIORITY_ENGINE.md)。
+- ~~Controlled Action Catalog / Action AI~~ → **Phase 4-D v1で実装済み**(docs/product/CONTROLLED_ACTION_LAYER.md)。
 - budget allocation / execute action
 - `performance_tradeoff`カテゴリ(§8「Future Scope」参照 — config/evaluation_metrics.php拡張が前提)
 - confidence calibration batch / multiple sampling / self-consistency voting

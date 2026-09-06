@@ -1,0 +1,360 @@
+{
+    "validation_run": {
+        "timestamp": "2026-09-06T04:19:50Z",
+        "run_id": "20260906-041950",
+        "synthetic_data_only": true,
+        "model": "gpt-5.4-mini",
+        "prompt_version": "action_prompt_v1",
+        "contract_version": "action_contract_v1",
+        "real_openai_call_limit": 2,
+        "real_openai_calls": 2,
+        "legacy_mapping_planning_analyze_diagnosis_calls": 0,
+        "credential_scan": "No credentials, headers, personal data, or customer data included.",
+        "browser_urls": {
+            "measurement": "http://localhost:18080/projects/26/analysis-jobs/60",
+            "insufficient": "http://localhost:18080/projects/26/analysis-jobs/61",
+            "not_applicable": "http://localhost:18080/projects/26/analysis-jobs/66",
+            "no_eligible": "http://localhost:18080/projects/26/analysis-jobs/67",
+            "eligible_no_proposal": "http://localhost:18080/projects/26/analysis-jobs/68",
+            "free_regression": "http://localhost:18080/projects/26/analysis-jobs/64",
+            "non_decision_regression": "http://localhost:18080/projects/26/analysis-jobs/65"
+        }
+    },
+    "cases": {
+        "measurement_consistency_candidate": {
+            "input_fixture": {
+                "synthetic": true,
+                "category": "measurement_consistency_risk",
+                "entity": "Synthetic Zero Conversion"
+            },
+            "model": "gpt-5.4-mini",
+            "prompt_version": "action_prompt_v1",
+            "contract_version": "action_contract_v1",
+            "raw_request_package": {
+                "analysis_job_id": 60,
+                "action_catalog_key": "verify_measurement_consistency",
+                "trigger_fact": {
+                    "evaluation_fact_id": 165,
+                    "metric_key": "conversion_rate",
+                    "entity_key": "Synthetic Zero Conversion",
+                    "evaluation_level": "high",
+                    "direction": "below"
+                },
+                "diagnosis": {
+                    "diagnosis_result_id": 35,
+                    "category_key": "measurement_consistency_risk",
+                    "rationale_summary": "Zero conversions with sufficient synthetic traffic warrants checking measurement consistency; it does not confirm a tracking failure.",
+                    "evidence_refs": [
+                        "trigger_fact"
+                    ],
+                    "missing_evidence": []
+                },
+                "priority": {
+                    "priority_result_id": 21,
+                    "priority_band": "high",
+                    "priority_score": 0.173829,
+                    "formula_version": "priority_v1.1"
+                },
+                "allowed_checks": [
+                    "verify_event_definition",
+                    "verify_tag_firing",
+                    "verify_time_window",
+                    "verify_source_completeness"
+                ],
+                "allowed_evidence_refs": [
+                    "evaluation_fact:165",
+                    "diagnosis_result:35",
+                    "priority_result:21"
+                ],
+                "contract_version": "action_contract_v1"
+            },
+            "raw_response": "{\"catalog_key\":\"verify_measurement_consistency\",\"title\":\"Review measurement consistency for synthetic zero conversion\",\"rationale_summary\":\"Zero conversions with sufficient synthetic traffic and a high-priority measurement consistency risk suggest reviewing whether the observed conversion rate is being measured consistently. This is advisory only and does not confirm a tracking failure.\",\"selected_checks\":[\"verify_event_definition\",\"verify_tag_firing\",\"verify_time_window\",\"verify_source_completeness\"],\"evidence_refs\":[\"evaluation_fact:165\",\"diagnosis_result:35\",\"priority_result:21\"],\"missing_evidence\":[]}",
+            "normalized_response": {
+                "catalog_key": "verify_measurement_consistency",
+                "title": "Review measurement consistency for synthetic zero conversion",
+                "rationale_summary": "Zero conversions with sufficient synthetic traffic and a high-priority measurement consistency risk suggest reviewing whether the observed conversion rate is being measured consistently. This is advisory only and does not confirm a tracking failure.",
+                "selected_checks": [
+                    "verify_event_definition",
+                    "verify_tag_firing",
+                    "verify_time_window",
+                    "verify_source_completeness"
+                ],
+                "evidence_refs": [
+                    "evaluation_fact:165",
+                    "diagnosis_result:35",
+                    "priority_result:21"
+                ],
+                "missing_evidence": []
+            },
+            "relevant_db_rows": {
+                "analysis_job_id": 60,
+                "evaluation_fact_id": 165,
+                "diagnosis_result_id": 35,
+                "priority_result_id": 21,
+                "action_proposal_id": 1
+            },
+            "ai_call_count": 1,
+            "expected_result": {
+                "catalog_key": "verify_measurement_consistency",
+                "selected_checks": "non-empty allowed subset",
+                "evidence_refs": "non-empty allowed subset",
+                "no_causal_budget_or_execution_claim": true
+            },
+            "actual_result": {
+                "catalog_key": "verify_measurement_consistency",
+                "title": "Review measurement consistency for synthetic zero conversion",
+                "rationale_summary": "Zero conversions with sufficient synthetic traffic and a high-priority measurement consistency risk suggest reviewing whether the observed conversion rate is being measured consistently. This is advisory only and does not confirm a tracking failure.",
+                "selected_checks": [
+                    "verify_event_definition",
+                    "verify_tag_firing",
+                    "verify_time_window",
+                    "verify_source_completeness"
+                ],
+                "evidence_refs": [
+                    "evaluation_fact:165",
+                    "diagnosis_result:35",
+                    "priority_result:21"
+                ],
+                "missing_evidence": []
+            },
+            "result": "PASS"
+        },
+        "insufficient_explanation_candidate": {
+            "input_fixture": {
+                "synthetic": true,
+                "category": "insufficient_explanatory_evidence",
+                "entity": "Synthetic Low Conversion"
+            },
+            "model": "gpt-5.4-mini",
+            "prompt_version": "action_prompt_v1",
+            "contract_version": "action_contract_v1",
+            "raw_request_package": {
+                "analysis_job_id": 61,
+                "action_catalog_key": "collect_explanatory_evidence",
+                "trigger_fact": {
+                    "evaluation_fact_id": 166,
+                    "metric_key": "conversion_rate",
+                    "entity_key": "Synthetic Low Conversion",
+                    "evaluation_level": "high",
+                    "direction": "below"
+                },
+                "diagnosis": {
+                    "diagnosis_result_id": 36,
+                    "category_key": "insufficient_explanatory_evidence",
+                    "rationale_summary": "The synthetic observation does not contain enough evidence to distinguish among possible explanations.",
+                    "evidence_refs": [
+                        "trigger_fact"
+                    ],
+                    "missing_evidence": [
+                        "channel-level audience composition"
+                    ]
+                },
+                "priority": {
+                    "priority_result_id": 22,
+                    "priority_band": "high",
+                    "priority_score": 0.173829,
+                    "formula_version": "priority_v1.1"
+                },
+                "allowed_checks": [],
+                "allowed_evidence_refs": [
+                    "evaluation_fact:166",
+                    "diagnosis_result:36",
+                    "priority_result:22"
+                ],
+                "contract_version": "action_contract_v1"
+            },
+            "raw_response": "{\"catalog_key\":\"collect_explanatory_evidence\",\"title\":\"Collect explanatory evidence for low conversion performance\",\"rationale_summary\":\"The observed low conversion rate is flagged as high priority, but the diagnosis indicates insufficient explanatory evidence to determine why the synthetic entity is underperforming. Additional evidence is needed before any cause-specific action can be considered.\",\"selected_checks\":[],\"evidence_refs\":[\"evaluation_fact:166\",\"diagnosis_result:36\",\"priority_result:22\"],\"missing_evidence\":[\"channel-level audience composition\"]}",
+            "normalized_response": {
+                "catalog_key": "collect_explanatory_evidence",
+                "title": "Collect explanatory evidence for low conversion performance",
+                "rationale_summary": "The observed low conversion rate is flagged as high priority, but the diagnosis indicates insufficient explanatory evidence to determine why the synthetic entity is underperforming. Additional evidence is needed before any cause-specific action can be considered.",
+                "selected_checks": [],
+                "evidence_refs": [
+                    "evaluation_fact:166",
+                    "diagnosis_result:36",
+                    "priority_result:22"
+                ],
+                "missing_evidence": [
+                    "channel-level audience composition"
+                ]
+            },
+            "relevant_db_rows": {
+                "analysis_job_id": 61,
+                "evaluation_fact_id": 166,
+                "diagnosis_result_id": 36,
+                "priority_result_id": 22,
+                "action_proposal_id": 2
+            },
+            "ai_call_count": 1,
+            "expected_result": {
+                "catalog_key": "collect_explanatory_evidence",
+                "selected_checks": [],
+                "evidence_refs": "non-empty allowed subset",
+                "no_causal_budget_or_execution_claim": true
+            },
+            "actual_result": {
+                "catalog_key": "collect_explanatory_evidence",
+                "title": "Collect explanatory evidence for low conversion performance",
+                "rationale_summary": "The observed low conversion rate is flagged as high priority, but the diagnosis indicates insufficient explanatory evidence to determine why the synthetic entity is underperforming. Additional evidence is needed before any cause-specific action can be considered.",
+                "selected_checks": [],
+                "evidence_refs": [
+                    "evaluation_fact:166",
+                    "diagnosis_result:36",
+                    "priority_result:22"
+                ],
+                "missing_evidence": [
+                    "channel-level audience composition"
+                ]
+            },
+            "result": "PASS"
+        },
+        "ineligible_fact": {
+            "input_fixture": {
+                "synthetic": true,
+                "evaluation_fact_id": 167,
+                "evaluation_level": "low"
+            },
+            "model": "gpt-5.4-mini",
+            "prompt_version": "action_prompt_v1",
+            "contract_version": "action_contract_v1",
+            "raw_request_package": null,
+            "raw_response": null,
+            "normalized_response": null,
+            "relevant_db_rows": {
+                "analysis_job_id": 62,
+                "proposal_count": 0
+            },
+            "ai_call_count": 0,
+            "expected_result": {
+                "proposal_count": 0,
+                "action_ai_call_count": 0
+            },
+            "actual_result": {
+                "proposal_count": 0,
+                "action_ai_call_count": 0
+            },
+            "result": "PASS"
+        },
+        "mixed_candidates": {
+            "input_fixture": {
+                "synthetic": true,
+                "candidate_fact_ids": [
+                    168,
+                    169
+                ]
+            },
+            "model": "controlled-local-response",
+            "prompt_version": "action_prompt_v1",
+            "contract_version": "action_contract_v1",
+            "raw_request_package": "See candidate records and allow-lists in relevant DB rows.",
+            "raw_response": [
+                "{malformed",
+                "{\"catalog_key\":\"collect_explanatory_evidence\",\"title\":\"Collect synthetic explanatory evidence\",\"rationale_summary\":\"Collect the listed synthetic evidence to narrow possible explanations without asserting a cause.\",\"selected_checks\":[],\"evidence_refs\":[\"evaluation_fact:169\"],\"missing_evidence\":[\"channel-level audience composition\"]}"
+            ],
+            "normalized_response": {
+                "catalog_key": "collect_explanatory_evidence",
+                "selected_checks_json": [],
+                "evidence_refs_json": [
+                    "evaluation_fact:169"
+                ],
+                "missing_evidence_json": [
+                    "channel-level audience composition"
+                ]
+            },
+            "relevant_db_rows": {
+                "analysis_job_id": 63,
+                "status": "Completed",
+                "proposal_fact_ids": [
+                    169
+                ]
+            },
+            "ai_call_count": 0,
+            "controlled_action_attempt_count": 2,
+            "expected_result": {
+                "proposal_count": 1,
+                "status": "Completed",
+                "malformed_candidate_saved": false
+            },
+            "actual_result": {
+                "proposal_count": 1,
+                "status": "Completed",
+                "malformed_candidate_saved": false
+            },
+            "result": "PASS"
+        },
+        "decision_enabled_legacy_policy_violation": {
+            "input_fixture": {
+                "synthetic": true
+            },
+            "model": "controlled-local-response",
+            "prompt_version": "analysis contract under test",
+            "contract_version": "legacy result normalization",
+            "raw_request_package": null,
+            "raw_response": "{\"summary\":\"Synthetic policy test.\",\"highlights\":[],\"metrics\":[],\"tables\":[],\"insights\":[],\"recommendations\":[{\"title\":\"Increase budget\",\"description\":\"Synthetic prohibited legacy recommendation.\",\"priority\":\"high\"}]}",
+            "normalized_response": {
+                "summary": "Synthetic policy test.",
+                "highlights": [],
+                "metrics": [],
+                "tables": [],
+                "insights": [],
+                "recommendations": []
+            },
+            "relevant_db_rows": null,
+            "ai_call_count": 0,
+            "expected_result": {
+                "recommendations": [],
+                "warning_log": true,
+                "retry": false
+            },
+            "actual_result": {
+                "recommendations": [],
+                "warning_log": true,
+                "exception": null
+            },
+            "result": "PASS"
+        },
+        "regression": {
+            "input_fixture": {
+                "synthetic": true,
+                "jobs": {
+                    "free": 64,
+                    "non_decision": 65
+                }
+            },
+            "model": "gpt-5.4-mini",
+            "prompt_version": "action_prompt_v1",
+            "contract_version": "action_contract_v1",
+            "raw_request_package": null,
+            "raw_response": null,
+            "normalized_response": null,
+            "relevant_db_rows": {
+                "project_id": 26,
+                "free_job_id": 64,
+                "non_decision_job_id": 65
+            },
+            "ai_call_count": 0,
+            "expected_result": {
+                "action_proposals": 0,
+                "legacy_recommendations_preserved": true
+            },
+            "actual_result": {
+                "action_proposals": 0,
+                "free_recommendations": [
+                    {
+                        "title": "Review synthetic report",
+                        "priority": "low",
+                        "description": "Legacy recommendation remains visible."
+                    }
+                ],
+                "non_decision_recommendations": [
+                    {
+                        "title": "Review synthetic report",
+                        "priority": "low",
+                        "description": "Legacy recommendation remains visible."
+                    }
+                ]
+            },
+            "result": "PASS"
+        }
+    }
+}

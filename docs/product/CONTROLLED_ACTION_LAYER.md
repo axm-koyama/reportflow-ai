@@ -2,13 +2,13 @@
 
 ## 1. Document status
 
-- Status: **Designed / not implemented**
+- Status: **Implemented / automated tests established; Product Validation pending**
 - Proposed phase: Phase 4-D
 - Target repository ref at design time: `feature/analysis-job-module`
 - Design date: 2026-09-06
 - Implementation, automated test execution, Browser E2E, and Production Observation are not established by this document.
 
-This document is the implementation contract for the first Controlled Action Layer. It must not be read as evidence that the capability already exists.
+This document is the implementation contract for the first Controlled Action Layer. Product Validation, real API execution, Browser E2E, and Production Observation remain separate evidence and are not established by implementation alone.
 
 ## 2. Purpose
 
@@ -172,6 +172,7 @@ Required package fields:
     "formula_version": "priority_v1.1"
   },
   "allowed_checks": ["verify_event_definition", "verify_tag_firing"],
+  "allowed_evidence_refs": ["evaluation_fact:10", "diagnosis_result:20", "priority_result:30"],
   "contract_version": "action_contract_v1"
 }
 ```
