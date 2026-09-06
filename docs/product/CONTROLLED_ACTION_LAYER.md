@@ -84,9 +84,11 @@ Rules:
 
 The stripping behavior in rule 3 must be implemented at the application boundary with explicit tests; prompt instructions alone are not the guarantee.
 
+This v1 decision intentionally supersedes the earlier Diagnosis-phase decision not to rewrite Decision-enabled legacy recommendations. When implementation lands, update the current-state wording in `DIAGNOSIS_ENGINE.md` while preserving its historical explanation.
+
 ## 7. Action Catalog v1
 
-Create `config/action_catalog.php`. Catalog keys are application-owned allow-list values and are never invented by AI.
+Create `config/action_catalog.php`. Catalog keys are application-owned allow-list values and are never invented by AI. Every entry has `enabled`, `label`, `allowed_diagnosis_categories`, `allowed_checks`, `title_max_characters`, and `rationale_max_characters`. v1 values are `title_max_characters = 120` and `rationale_max_characters = 1000`; length is measured with `mb_strlen()` after trimming.
 
 ### 7.1 `verify_measurement_consistency`
 
@@ -104,6 +106,7 @@ Create `config/action_catalog.php`. Catalog keys are application-owned allow-lis
 - Intended outcome: collect missing information before any optimization recommendation.
 - Required references: EvaluationFact, DiagnosisResult, PriorityResult.
 - AI may produce: concise rationale and missing-evidence items selected only from the Diagnosis evidence package/result.
+- `allowed_checks` and `selected_checks` are both `[]` for this catalog entry. v1 does not translate free-form missing-evidence descriptions into invented check keys.
 - It must not convert a missing-evidence item into a factual causal claim.
 
 No generic `other` action is permitted. Adding a catalog key requires config, deterministic eligibility, validator support, tests, and a schema/prompt version change.
@@ -118,6 +121,7 @@ An EvaluationFact is eligible only when all conditions hold:
 - a `DiagnosisResult` exists for the same `evaluation_fact_id`;
 - the Diagnosis category maps to exactly one enabled Action Catalog entry;
 - all required identifiers and evidence fields needed by that catalog entry exist;
+- `collect_explanatory_evidence` has at least one non-empty Diagnosis `missing_evidence` item;
 - the AnalysisJob is Decision-enabled by the same config-membership rule already used by the pipeline.
 
 Eligibility returns either:
@@ -132,7 +136,7 @@ or:
 ```text
 eligible: false
 reason: missing_priority | missing_diagnosis | unsupported_diagnosis |
-        missing_required_evidence | not_decision_enabled
+        missing_required_evidence | not_decision_enabled | catalog_disabled
 ```
 
 An ineligible item is skipped with a structured log. It is not an exception and must not trigger an AI call.
@@ -152,8 +156,7 @@ Required package fields:
     "metric_key": "conversion_rate",
     "entity_key": "Social",
     "evaluation_level": "high",
-    "direction": "below",
-    "evidence_refs": []
+    "direction": "below"
   },
   "diagnosis": {
     "diagnosis_result_id": 20,
@@ -174,6 +177,8 @@ Required package fields:
 ```
 
 The builder must copy identifiers and deterministic values from persisted models. AI must not receive the raw CSV, DataFile path, arbitrary prompt text, legacy recommendations, or unrelated facts.
+
+Action uses its own canonical reference IDs: `evaluation_fact:<id>`, `diagnosis_result:<id>`, and `priority_result:<id>`. It does not reuse Diagnosis prompt-internal reference strings. The supplied reference allow-list contains exactly those three IDs for v1.
 
 ## 10. Action AI output contract
 
@@ -197,10 +202,12 @@ Schema constraints:
 - `additionalProperties: false` at every object level;
 - all properties required, using empty arrays rather than omitted fields;
 - `catalog_key` is a single-value enum supplied by Laravel for that request;
-- `selected_checks` items use a request-specific enum and have unique items;
+- for `verify_measurement_consistency`, `selected_checks` items use a request-specific enum; for `collect_explanatory_evidence`, the schema permits a string array but the application validator requires exactly `[]` because an empty enum is not used;
 - `evidence_refs` items use a request-specific enum generated from the package;
-- text fields have explicit practical length limits if supported by the provider; the application validator enforces the limits regardless;
+- text fields are length-checked by the application validator because the target Structured Output subset is not assumed to support `minLength`/`maxLength`;
 - there is no action type, target ID, priority, confidence, approval, execution, URL, command, or arbitrary parameter supplied by AI.
+
+Before implementation, verify these keywords against the official documentation for the exact configured model. The application validator remains authoritative even when a constraint is also expressed in Structured Output.
 
 System Instruction must state that this is an advisory review proposal, not a confirmed cause or authorized execution.
 
@@ -211,6 +218,7 @@ Add `NormalizeActionProposalAction` or an equivalently named application validat
 - exact output shape;
 - catalog key equals the deterministic eligible key;
 - every selected check belongs to the supplied allow-list;
+- selected checks contain no duplicates (the application owns this guarantee; `uniqueItems` is not used);
 - every evidence reference belongs to the supplied reference list;
 - referenced IDs match the current AnalysisJob and EvaluationFact chain;
 - title and rationale are non-empty and within configured lengths;
@@ -251,6 +259,8 @@ timestamps
 
 The unique `evaluation_fact_id` enforces at most one current proposal per fact. No approval or execution columns are added in v1 because no such lifecycle exists yet.
 
+`ActionProposal` is a replaceable derived result, like EvaluationFact, DiagnosisResult, and PriorityResult. It does not use SoftDeletes. This is an explicit derived-result exception to the general Business Entity SoftDeletes rule: auditability is provided by raw response and version columns for the current run, while reruns replace derived rows.
+
 ## 13. Orchestration and lifecycle
 
 Add `RunActionProposalForAnalysisJobAction` after Diagnosis and before `markCompleted()`:
@@ -264,6 +274,8 @@ Final Analyze
 
 The orchestrator reloads eligible EvaluationFact rows with their DiagnosisResult and PriorityResult relations. It must not use in-memory AI output from Final Analyze.
 
+`ExecuteAnalysisJobAction` must retain three attempt-local success flags for Evaluation, Priority, and Diagnosis. Controlled Action runs only when all three orchestration calls completed without a technical exception in the current attempt. A normal outcome with zero eligible facts still counts as a successful upstream layer. This prevents Action from consuming rows left by an upstream soft-failure.
+
 Idempotency policy:
 
 1. delete existing ActionProposal rows for the AnalysisJob before proposal generation;
@@ -272,7 +284,8 @@ Idempotency policy:
 4. persist each validated proposal;
 5. a per-fact provider/normalization/persistence failure is logged and skipped;
 6. an orchestration-level failure is caught by `ExecuteAnalysisJobAction`, logged, and soft-fails;
-7. stale rows must not survive a new attempt that cannot regenerate them.
+7. on a normal retry, Evaluation's delete/recreate and foreign-key cascades remove previous ActionProposal rows before Action runs; the Action orchestrator also clears rows before generation as a second defense;
+8. if a database delete itself fails, absolute stale-row removal cannot be guaranteed. The failure is logged and Action output must not be described as current. v1 does not claim availability during database failure.
 
 Because delete-first plus per-candidate persistence can leave a valid partial set, the UI must represent proposals as best-effort output, not a complete action plan. A later phase may require an all-or-nothing batch contract.
 
@@ -299,17 +312,13 @@ Each proposal displays:
 - proposal title;
 - catalog label;
 - target metric/entity;
-- investigation priority band and score, clearly labelled as confirmation priority;
+- investigation priority band and its already-approved explanatory components, clearly labelled as confirmation priority; the raw `priority_score` is not displayed, consistent with `PRIORITY_ENGINE.md`;
 - rationale;
 - evidence references;
 - selected checks or missing evidence;
 - a fixed badge: `Advisory only — not executed`.
 
-No approve, reject, edit, execute, retry, or external link control is added. If no proposal exists, distinguish:
-
-- no eligible evidence;
-- Action layer technical failure, when that state can be established safely;
-- feature not applicable to this analysis.
+No approve, reject, edit, execute, retry, or external link control is added. If no proposal exists, show only `No controlled action proposal was generated.` plus a safely derivable applicability/eligibility explanation. Do not label the absence as a technical failure because v1 stores no Action-run status capable of proving that distinction.
 
 Do not present missing Action proposals as proof that no action is needed.
 
@@ -321,6 +330,7 @@ Do not present missing Action proposals as proof that no action is needed.
 - User-supplied and AI-supplied strings are escaped by Blade.
 - Persisted raw response is audit data and is never rendered directly.
 - No external credentials or connector configuration belong in this phase.
+- v1 supports only the repository's configured standard model with the Structured Output subset used by the implementation. Fine-tuned model support is outside v1; changing to one requires schema compatibility verification first.
 - A future executable Action requires a new design covering authorization, approval, idempotency, limits, audit, rollback/compensation, and partial failure.
 
 ## 17. Versioning
@@ -373,6 +383,8 @@ After automated tests pass, perform and retain raw artifacts for:
 
 Retain input fixture, model and prompt/contract versions, raw request package, raw response, normalized result, DB rows, call count, expected result, and screenshot. Browser narrative without these artifacts is not sufficient raw E2E evidence.
 
+Only synthetic/sanitized artifacts may be committed. Store machine-readable fixtures and expected results under `tests/fixtures/action_proposal_eval/`, and sanitized validation manifests/screenshots under `docs/product/validation/controlled-action-v1/`. Never commit credentials, provider headers, personal data, or customer raw data. If an artifact cannot be sanitized, retain it in approved private storage and commit only its redacted manifest/reference.
+
 ## 20. Deferred budget recommendation design
 
 A future `review_budget_allocation` or `propose_budget_reallocation` catalog entry requires evidence not currently guaranteed by Diagnosis v1:
@@ -395,7 +407,7 @@ Until that contract exists, Controlled Action must not state an amount or instru
 3. Add dedicated AI method/schema and application normalizer tests.
 4. Add migration/model/relations and persistence tests.
 5. Add orchestration after Diagnosis with soft-fail, stale cleanup, and call-count tests.
-6. Add read-only UI.
+6. Add a dedicated read Query for Action proposal view data, then add the read-only UI; do not assemble Action eligibility in the Controller.
 7. Run targeted tests, full suite, static/format checks required by the repository.
 8. Execute Product Validation and retain raw artifacts.
 9. Review results before considering budget recommendation Phase 2.
