@@ -30,6 +30,7 @@
                     <td>{{ $project->created_at?->format('Y-m-d H:i') }}</td>
                     <td>
                         <a href="{{ route('projects.data-files.index', $project) }}">Data Files</a>
+                        <a href="{{ route('projects.analysis-jobs.index', $project) }}">Analysis History</a>
                         <a href="{{ route('projects.edit', $project) }}">Edit</a>
                     </td>
                 </tr>
