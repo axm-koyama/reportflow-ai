@@ -41,6 +41,7 @@
             .badge-archived { background: #e5e5e5; color: #52525b; }
             .badge-pending { background: #fef3c7; color: #92400e; }
             .badge-processing { background: #dbeafe; color: #1e40af; }
+            .badge-awaiting-mapping-confirmation { background: #ede9fe; color: #5b21b6; }
             .badge-completed { background: #dcfce7; color: #166534; }
             .badge-failed { background: #fee2e2; color: #991b1b; }
             .badge-high { background: #dcfce7; color: #166534; }

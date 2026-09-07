@@ -35,6 +35,9 @@ Route::prefix('projects/{project}/data-files/{dataFile}')
             ->name('analysis-jobs.store');
     });
 
+Route::get('/projects/{project}/analysis-jobs', [AnalysisJobController::class, 'index'])
+    ->name('projects.analysis-jobs.index');
+
 Route::get('/projects/{project}/analysis-jobs/{analysisJob}', [AnalysisJobController::class, 'show'])
     ->name('projects.analysis-jobs.show');
 

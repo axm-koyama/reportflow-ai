@@ -20,6 +20,7 @@ use App\Models\AnalysisJob;
 use App\Models\DataFile;
 use App\Models\Project;
 use App\Queries\ActionProposal\GetControlledActionViewDataQuery;
+use App\Queries\AnalysisJob\ListAnalysisJobsQuery;
 use Illuminate\Contracts\View\View;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Support\Facades\DB;
@@ -27,6 +28,13 @@ use Illuminate\Validation\ValidationException;
 
 class AnalysisJobController extends Controller
 {
+    public function index(Project $project, ListAnalysisJobsQuery $query): View
+    {
+        $analysisJobs = $query->execute($project);
+
+        return view('analysis-jobs.index', compact('project', 'analysisJobs'));
+    }
+
     /**
      * Display the form for creating a new analysis job.
      */

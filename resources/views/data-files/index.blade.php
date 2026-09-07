@@ -3,6 +3,7 @@
 @section('title', 'Data Files - '.$project->name)
 
 @section('actions')
+    <a href="{{ route('projects.analysis-jobs.index', $project) }}" class="btn">Analysis History</a>
     <a href="{{ route('projects.index') }}" class="btn btn-secondary">Back to Projects</a>
 @endsection
 

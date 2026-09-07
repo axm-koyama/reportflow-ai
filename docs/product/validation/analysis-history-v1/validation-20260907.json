@@ -1,0 +1,163 @@
+{
+  "feature": "Analysis History & Status UX v1",
+  "specification": "docs/product/ANALYSIS_HISTORY.md#16",
+  "validation_date": "2026-09-07",
+  "repository_ref": "eff27ab8d22a10f0f497644f627f3f8ebf8cd701",
+  "branch": "feature/analysis-history-v1",
+  "mode": "Docker/MySQL + Browser Product Validation, zero OpenAI calls",
+  "environment": {
+    "app_env": "local",
+    "db_connection": "mysql",
+    "db_host": "mysql",
+    "db_port": 3306,
+    "db_database": "reportflow",
+    "db_container": "reportflow-mysql",
+    "db_network": "reportflow-ai_reportflow (local Docker bridge network, private 172.19.0.0/16)",
+    "confirmed_local_not_shared_or_production": true,
+    "app_url": "http://localhost:18080"
+  },
+  "docker_test_results": {
+    "targeted_suite": {
+      "command": "php artisan test tests/Feature/AnalysisJob/AnalysisHistoryControllerTest.php tests/Feature/AnalysisJob/ListAnalysisJobsQueryTest.php tests/Unit/Enums/AnalysisJobStatusTest.php tests/Feature/Project/ProjectControllerTest.php tests/Feature/DataFile/DataFileControllerTest.php tests/Feature/AnalysisJob/AnalysisJobControllerTest.php tests/Feature/AnalysisJob/AnalysisJobMappingControllerTest.php",
+      "result": "72 passed, 0 failed (331 assertions)"
+    },
+    "full_suite": {
+      "command": "php artisan test",
+      "result": "702 passed, 1 skipped, 0 failed (2531 assertions)",
+      "note": "The 1 skipped test is in Tests\\Feature\\Priority\\GoldenPriorityEvalTest (pre-existing Priority Engine fixture), unrelated to Analysis History."
+    },
+    "pint": {
+      "command": "./vendor/bin/pint --test <12 changed files>",
+      "result": "PASS, 12/12 files, no changes needed"
+    },
+    "git_diff_check": {
+      "command": "git diff --check eff27ab8d22a10f0f497644f627f3f8ebf8cd701",
+      "result": "clean, no output, exit 0"
+    },
+    "migration_check": {
+      "new_migration_files": 0,
+      "analysis_jobs_table_columns_unchanged": true,
+      "columns": ["analysis_job_id", "data_file_id", "title", "template_key", "status", "created_at", "updated_at", "deleted_at"],
+      "last_applied_migration": "2026_09_06_000000_create_action_proposals_table (predates this feature; no migration was run for Analysis History)"
+    }
+  },
+  "synthetic_fixture": {
+    "created_via": "temporary standalone PHP runner bootstrapped through bootstrap/app.php, executed at /tmp inside the app container (never bind-mounted into the host repo), deleted immediately after execution",
+    "validation_project": {
+      "project_id": 27,
+      "name": "Analysis History Validation 20260907",
+      "data_files": ["AHV20260907-alpha.csv", "AHV20260907-beta.csv", "AHV20260907-gamma.csv"],
+      "total_analysis_jobs": 25
+    },
+    "empty_project": {
+      "project_id": 29,
+      "name": "AHV20260907 Empty Project Check"
+    },
+    "other_project_hidden_job": {
+      "project_id": 28,
+      "name": "AHV20260907 OTHER PROJECT (must stay hidden)",
+      "job_id": 94,
+      "job_title": "AHV20260907 HIDDEN Other Project Job"
+    },
+    "awaiting_mapping_confirmation_job_id": 71,
+    "tie_break_group_job_ids_same_created_at": [76, 77, 78],
+    "all_created_rows_identifiable_by_prefix": "AHV20260907",
+    "no_pre_existing_data_deleted": true
+  },
+  "browser_scenarios": {
+    "1_empty_project": {
+      "url": "/projects/29/analysis-jobs",
+      "history_page_loads": true,
+      "empty_state_text_exact": "No analyses have been created for this project yet.",
+      "data_files_link_present": true,
+      "analyze_link_without_datafile_present": false,
+      "retry_present": false,
+      "live_status_hint_present_on_empty_state": false,
+      "note": "The 'Open an analysis to view live status updates.' hint correctly renders only in the non-empty branch."
+    },
+    "2_project_scope": {
+      "own_project_jobs_visible": "all 25 (25/25)",
+      "other_project_job_visible_in_own_history": false,
+      "own_job_visible_in_other_projects_history": false,
+      "confirmed_bidirectionally": true,
+      "multiple_data_files_in_same_history": "alpha.csv, beta.csv, gamma.csv all present in project 27's history"
+    },
+    "3_columns": {
+      "title_correct_per_row": true,
+      "data_file_name_correct_per_row": true,
+      "free_analysis_mode_rendered": "e.g. job 74 'Free Analysis Mode' -> Mode column 'Free Analysis'",
+      "configured_template_name_rendered": "template_key=ad_performance -> '広告パフォーマンス分析'; template_key=sales_analysis -> '売上分析'",
+      "unknown_template_key_fallback_rendered": "template_key='synthetic_retired_template_v1' (not in config) -> raw key displayed verbatim, not relabeled Free Analysis",
+      "status_correct_per_row": true,
+      "created_at_updated_at_rendered": true,
+      "view_details_present_every_row": true
+    },
+    "4_status": {
+      "all_five_labels_rendered": ["Pending", "Processing", "Mapping confirmation required", "Completed", "Failed"],
+      "badge_colors_distinguishable": true,
+      "awaiting_mapping_confirmation_badge_color": "violet/purple (#ede9fe / #5b21b6)",
+      "failed_badge_color": "red/pink (#fee2e2 / #991b1b)",
+      "visually_distinct_from_failed": true,
+      "detail_page_uses_same_canonical_badge": true
+    },
+    "5_actions": {
+      "view_details_all_rows": true,
+      "review_mapping_only_on_awaiting_mapping_confirmation_row": true,
+      "review_mapping_absent_on_failed_and_other_rows": true,
+      "review_mapping_link_target": "/projects/27/analysis-jobs/71/mapping",
+      "review_mapping_navigation_succeeds": true,
+      "retry_or_mutation_form_present": false,
+      "queue_dispatch_control_present": false
+    },
+    "6_navigation": {
+      "projects_to_history": "confirmed for all listed projects, each link scoped to its own project_id",
+      "data_files_to_history": "confirmed for project 27",
+      "analysis_detail_to_history": "confirmed via job 71 detail page ('Back to Analysis History')",
+      "analysis_detail_to_data_files": "confirmed via job 71 detail page ('Data Files')",
+      "existing_mapping_back_link_unchanged": "mapping edit page '戻る' still returns to the AnalysisJob detail page (/projects/27/analysis-jobs/71), per existing contract",
+      "existing_create_flow_unbroken": "Analyze button still present per DataFile row on Data Files index",
+      "existing_show_flow_unbroken": true
+    },
+    "7_pagination": {
+      "page_1_count": 20,
+      "page_1_range_label": "Showing 1 to 20 of 25 results",
+      "page_2_count": 5,
+      "page_2_range_label": "Showing 21 to 25 of 25 results",
+      "total": 25,
+      "duplicates_across_boundary": false,
+      "gaps_across_boundary": false,
+      "order_matches_created_at_desc_id_desc": true,
+      "tie_break_group_order_observed": "job 78, then 77, then 76 (all created_at=2026-09-07 08:53:00) -- exact analysis_job_id DESC"
+    }
+  },
+  "side_effects": {
+    "measured_before_browser_session": {
+      "analysis_jobs_count": 58,
+      "jobs_table_count": 0,
+      "failed_jobs_table_count": 2,
+      "job_71_status": "AwaitingMappingConfirmation"
+    },
+    "measured_after_browser_session": {
+      "analysis_jobs_count": 58,
+      "jobs_table_count": 0,
+      "failed_jobs_table_count": 2,
+      "job_71_status": "AwaitingMappingConfirmation",
+      "job_71_updated_at_unchanged": "2026-09-07 08:58:00",
+      "job_71_detail_column_mapping_still_null": true
+    },
+    "ai_request_observed": false,
+    "queue_dispatch_observed": false,
+    "db_mutation_observed": false,
+    "status_mutation_observed": false
+  },
+  "issues_found": [],
+  "residual_risks": [
+    "PNG screenshot files could not be persisted to disk from this session's Browser tool (no save-to-file capability was available); visual checks (badge colors, layout, empty state, five statuses, mapping navigation, pagination) were performed and observed directly in-session but are not preserved as separate binary artifacts in this folder. See validation-20260907-notes.md for the textual description of what was visually observed in place of each requested screenshot.",
+    "This validation exercised only the read paths (GET history, GET mapping edit). It does not re-verify write-path regressions (create/store, mapping update/confirm submission) beyond confirming their entry points still render/link correctly; those already have dedicated automated coverage exercised in the Docker test run above.",
+    "Synthetic validation data (Projects 27/28/29 and their DataFiles/AnalysisJobs, all prefixed 'AHV20260907') remains in the local Docker MySQL database after this validation, as instructed (existing data must not be deleted; only newly created rows need to be identifiable). It should be cleaned up by a deliberate follow-up action before this database is reused for further validation, if a clean baseline is desired."
+  ],
+  "product_code_changed": false,
+  "protected_files_touched": false,
+  "commit_performed": false,
+  "push_performed": false
+}

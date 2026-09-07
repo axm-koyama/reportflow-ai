@@ -9,21 +9,12 @@
 @section('title', $analysisJob->title)
 
 @section('actions')
-    <a href="{{ route('projects.data-files.index', $project) }}" class="btn btn-secondary">Back to Data Files</a>
+    <a href="{{ route('projects.analysis-jobs.index', $project) }}" class="btn">Back to Analysis History</a>
+    <a href="{{ route('projects.data-files.index', $project) }}" class="btn btn-secondary">Data Files</a>
 @endsection
 
 @section('content')
     @php($detail = $analysisJob->analysisJobDetail)
-    @php($statusName = strtolower($analysisJob->status->name))
-    @php($statusLabels = [
-        'pending' => 'Pending',
-        'processing' => 'Processing',
-        'completed' => 'Completed',
-        'failed' => 'Failed',
-        'awaitingmappingconfirmation' => '列マッピング確認待ち',
-    ])
-    @php($statusLabel = $statusLabels[$statusName] ?? $analysisJob->status->name)
-
     @php($templateName = $analysisJob->template_key ? (config('analysis_templates.'.$analysisJob->template_key.'.name') ?? $analysisJob->template_key) : null)
 
     <dl class="metadata card">
@@ -32,7 +23,7 @@
             <dt>使用テンプレート</dt><dd>{{ $templateName }}</dd>
         @endif
         <dt>Prompt</dt><dd>{{ $detail?->prompt ?: '(なし)' }}</dd>
-        <dt>Status</dt><dd><span class="badge badge-{{ $statusName }}">{{ $statusLabel }}</span></dd>
+        <dt>Status</dt><dd><span class="badge {{ $analysisJob->status->badgeClass() }}">{{ $analysisJob->status->label() }}</span></dd>
         <dt>Created At</dt><dd>{{ $analysisJob->created_at?->format('Y-m-d H:i:s') ?? '-' }}</dd>
         <dt>Started At</dt><dd>{{ $detail?->started_at?->format('Y-m-d H:i:s') ?? '-' }}</dd>
         <dt>Completed At</dt><dd>{{ $detail?->completed_at?->format('Y-m-d H:i:s') ?? '-' }}</dd>

@@ -26,4 +26,26 @@ enum AnalysisJobStatus: int
      * analysis (template_key === null) never enters this status.
      */
     case AwaitingMappingConfirmation = 4;
+
+    public function label(): string
+    {
+        return match ($this) {
+            self::Pending => 'Pending',
+            self::Processing => 'Processing',
+            self::AwaitingMappingConfirmation => 'Mapping confirmation required',
+            self::Completed => 'Completed',
+            self::Failed => 'Failed',
+        };
+    }
+
+    public function badgeClass(): string
+    {
+        return match ($this) {
+            self::Pending => 'badge-pending',
+            self::Processing => 'badge-processing',
+            self::AwaitingMappingConfirmation => 'badge-awaiting-mapping-confirmation',
+            self::Completed => 'badge-completed',
+            self::Failed => 'badge-failed',
+        };
+    }
 }
