@@ -30,6 +30,7 @@ class AnalysisJobFactory extends Factory
                 '顧客分類分析',
             ]),
             'status' => AnalysisJobStatus::Pending,
+            'recovered_from_analysis_job_id' => null,
         ];
     }
 }

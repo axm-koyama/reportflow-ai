@@ -19,7 +19,7 @@ class ListAnalysisJobsQuery
             ->whereHas('dataFile', function ($query) use ($project): void {
                 $query->where('project_id', $project->project_id);
             })
-            ->with('dataFile')
+            ->with(['dataFile', 'recoveredFrom', 'recoveryAttempt'])
             ->orderByDesc('created_at')
             ->orderByDesc('analysis_job_id')
             ->paginate(self::PER_PAGE);

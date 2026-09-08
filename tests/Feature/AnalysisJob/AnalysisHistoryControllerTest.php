@@ -118,7 +118,7 @@ class AnalysisHistoryControllerTest extends TestCase
 
         $this->assertSame(7, substr_count($response->getContent(), 'View Details'));
         $this->assertSame(1, substr_count($response->getContent(), 'Review Mapping'));
-        $this->assertStringNotContainsString('<form', $response->getContent());
+        $this->assertSame(1, substr_count($response->getContent(), '<form'));
     }
 
     public function test_review_mapping_link_appears_only_for_the_waiting_job(): void

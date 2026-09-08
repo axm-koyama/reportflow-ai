@@ -4,8 +4,12 @@ declare(strict_types=1);
 
 namespace Tests\Feature\AnalysisJob;
 
+use App\Actions\AnalysisJob\BuildAnalysisTemplateColumnCandidatesAction;
 use App\Actions\AnalysisJob\CalculateDerivedMetricsAction;
 use App\Actions\AnalysisJob\ExecuteAnalysisJobAction;
+use App\Actions\AnalysisJob\RecoverFailedAnalysisJobAction;
+use App\Actions\AnalysisJob\ResolveEffectiveColumnMappingAction;
+use App\Actions\AnalysisJob\UpdateAnalysisJobAction;
 use App\Actions\DataProfiling\DataProfilingAction;
 use App\Actions\DataProfiling\MetricAggregationAction;
 use App\AI\AiAnalysisClient;
@@ -14,6 +18,7 @@ use App\Models\AnalysisJob;
 use App\Models\AnalysisJobDetail;
 use App\Models\DataFile;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use InvalidArgumentException;
@@ -961,10 +966,10 @@ class ExecuteAnalysisJobActionTest extends TestCase
         // and resume.
         $template = config('analysis_templates.ad_performance');
         $dataProfile = app(DataProfilingAction::class)->execute($analysisJob->dataFile);
-        $columnCandidates = app(\App\Actions\AnalysisJob\BuildAnalysisTemplateColumnCandidatesAction::class)
+        $columnCandidates = app(BuildAnalysisTemplateColumnCandidatesAction::class)
             ->execute($template['fields'], $dataProfile);
 
-        $effective = app(\App\Actions\AnalysisJob\ResolveEffectiveColumnMappingAction::class)->execute(
+        $effective = app(ResolveEffectiveColumnMappingAction::class)->execute(
             $template['fields'],
             $columnCandidates,
             $detail->column_mapping,
@@ -975,7 +980,7 @@ class ExecuteAnalysisJobActionTest extends TestCase
 
         $this->assertSame([], $effective['missing_required_fields']);
 
-        app(\App\Actions\AnalysisJob\UpdateAnalysisJobAction::class)->resumeAfterMappingConfirmation(
+        app(UpdateAnalysisJobAction::class)->resumeAfterMappingConfirmation(
             $analysisJob,
             ['channel' => ['column' => 'channel']],
             $effective['effective_mapping'],
@@ -1061,10 +1066,10 @@ class ExecuteAnalysisJobActionTest extends TestCase
 
         $template = config('analysis_templates.sales_analysis');
         $dataProfile = app(DataProfilingAction::class)->execute($analysisJob->dataFile);
-        $columnCandidates = app(\App\Actions\AnalysisJob\BuildAnalysisTemplateColumnCandidatesAction::class)
+        $columnCandidates = app(BuildAnalysisTemplateColumnCandidatesAction::class)
             ->execute($template['fields'], $dataProfile);
 
-        $effective = app(\App\Actions\AnalysisJob\ResolveEffectiveColumnMappingAction::class)->execute(
+        $effective = app(ResolveEffectiveColumnMappingAction::class)->execute(
             $template['fields'],
             $columnCandidates,
             $detail->column_mapping,
@@ -1077,7 +1082,7 @@ class ExecuteAnalysisJobActionTest extends TestCase
         $this->assertSame('unmapped', $effective['effective_mapping']['quantity']['status']);
         $this->assertSame('mapped', $effective['effective_mapping']['orders']['status']);
 
-        app(\App\Actions\AnalysisJob\UpdateAnalysisJobAction::class)->resumeAfterMappingConfirmation(
+        app(UpdateAnalysisJobAction::class)->resumeAfterMappingConfirmation(
             $analysisJob,
             $manualOverrides,
             $effective['effective_mapping'],
@@ -1243,6 +1248,91 @@ class ExecuteAnalysisJobActionTest extends TestCase
         $this->assertSame('channel', $detail->effective_column_mapping['channel']['column']);
     }
 
+    public function test_recovery_child_reuses_effective_mapping_but_reruns_planning_and_analysis(): void
+    {
+        Queue::fake();
+        [$dataFile, $source, $sourceDetail] = $this->createPendingAdPerformanceAnalysisJob();
+        $effectiveMapping = [
+            'channel' => ['column' => 'channel', 'status' => 'mapped', 'source' => 'ai'],
+            'spend' => ['column' => 'spend', 'status' => 'mapped', 'source' => 'ai'],
+        ];
+        $source->update(['status' => AnalysisJobStatus::Failed]);
+        $sourceDetail->update(['effective_column_mapping' => $effectiveMapping, 'error_message' => 'old failure']);
+        $child = app(RecoverFailedAnalysisJobAction::class)->execute($dataFile->project, $source)['analysis_job'];
+
+        $this->mock(AiAnalysisClient::class)
+            ->shouldNotReceive('mapColumns')
+            ->shouldReceive('planMetrics')->once()->andReturn($this->emptyPlanResponse())
+            ->shouldReceive('analyze')->once()->andReturn(json_encode($this->structuredResult(), JSON_THROW_ON_ERROR));
+
+        app(ExecuteAnalysisJobAction::class)->execute($child->analysis_job_id);
+
+        $this->assertSame(AnalysisJobStatus::Completed, $child->fresh()->status);
+        $this->assertSame(AnalysisJobStatus::Failed, $source->fresh()->status);
+    }
+
+    public function test_recovery_child_revalidates_copied_column_mapping_without_mapping_ai(): void
+    {
+        Queue::fake();
+        [$dataFile, $source, $sourceDetail] = $this->createPendingAdPerformanceAnalysisJob();
+        $columnMapping = [
+            'channel' => ['column' => 'channel', 'confidence' => 'high', 'status' => 'mapped'],
+            'campaign' => ['column' => null, 'confidence' => 'unmapped', 'status' => 'unmapped'],
+            'spend' => ['column' => 'spend', 'confidence' => 'high', 'status' => 'mapped'],
+            'revenue' => ['column' => 'revenue', 'confidence' => 'high', 'status' => 'mapped'],
+            'conversions' => ['column' => null, 'confidence' => 'unmapped', 'status' => 'unmapped'],
+            'clicks' => ['column' => null, 'confidence' => 'unmapped', 'status' => 'unmapped'],
+            'impressions' => ['column' => null, 'confidence' => 'unmapped', 'status' => 'unmapped'],
+            'date' => ['column' => null, 'confidence' => 'unmapped', 'status' => 'unmapped'],
+        ];
+        $source->update(['status' => AnalysisJobStatus::Failed]);
+        $sourceDetail->update(['column_mapping' => $columnMapping, 'effective_column_mapping' => null]);
+        $child = app(RecoverFailedAnalysisJobAction::class)->execute($dataFile->project, $source)['analysis_job'];
+
+        $this->mock(AiAnalysisClient::class)
+            ->shouldNotReceive('mapColumns')
+            ->shouldReceive('planMetrics')->once()->andReturn($this->emptyPlanResponse())
+            ->shouldReceive('analyze')->once()->andReturn(json_encode($this->structuredResult(), JSON_THROW_ON_ERROR));
+
+        app(ExecuteAnalysisJobAction::class)->execute($child->analysis_job_id);
+
+        $childDetail = $child->analysisJobDetail()->firstOrFail();
+        $this->assertSame(AnalysisJobStatus::Completed, $child->fresh()->status);
+        $this->assertSame($columnMapping, $childDetail->column_mapping);
+        $this->assertNotNull($childDetail->effective_column_mapping);
+    }
+
+    public function test_recovery_child_without_mapping_runs_mapping_planning_and_analysis_pipeline(): void
+    {
+        Queue::fake();
+        [$dataFile, $source, $sourceDetail] = $this->createPendingAdPerformanceAnalysisJob();
+        $source->update(['status' => AnalysisJobStatus::Failed]);
+        $sourceDetail->update([
+            'column_mapping' => null,
+            'manual_column_mapping' => null,
+            'effective_column_mapping' => null,
+            'error_message' => 'Mapping provider failed before a response was stored.',
+        ]);
+        $child = app(RecoverFailedAnalysisJobAction::class)->execute($dataFile->project, $source)['analysis_job'];
+        $mapResponse = json_encode(['mappings' => [
+            ['field' => 'channel', 'column' => 'channel', 'confidence' => 'high'],
+            ['field' => 'spend', 'column' => 'spend', 'confidence' => 'high'],
+            ['field' => 'revenue', 'column' => 'revenue', 'confidence' => 'high'],
+            ['field' => 'conversions', 'column' => 'conversions', 'confidence' => 'high'],
+        ]], JSON_THROW_ON_ERROR);
+
+        $this->mock(AiAnalysisClient::class)
+            ->shouldReceive('mapColumns')->once()->andReturn($mapResponse)
+            ->shouldReceive('planMetrics')->once()->andReturn($this->emptyPlanResponse())
+            ->shouldReceive('analyze')->once()->andReturn(json_encode($this->structuredResult(), JSON_THROW_ON_ERROR));
+
+        app(ExecuteAnalysisJobAction::class)->execute($child->analysis_job_id);
+
+        $this->assertSame(AnalysisJobStatus::Completed, $child->fresh()->status);
+        $this->assertSame(AnalysisJobStatus::Failed, $source->fresh()->status);
+        $this->assertNotNull($child->analysisJobDetail()->firstOrFail()->effective_column_mapping);
+    }
+
     /**
      * Same retry-recovery scenario, but the stored column_mapping does
      * NOT satisfy required_fields (review test 4): must go to
@@ -1313,12 +1403,12 @@ class ExecuteAnalysisJobActionTest extends TestCase
 
         $template = config('analysis_templates.ad_performance');
         $dataProfile = app(DataProfilingAction::class)->execute($analysisJob->dataFile);
-        $columnCandidates = app(\App\Actions\AnalysisJob\BuildAnalysisTemplateColumnCandidatesAction::class)
+        $columnCandidates = app(BuildAnalysisTemplateColumnCandidatesAction::class)
             ->execute($template['fields'], $dataProfile);
 
         $manualOverrides = ['channel' => ['column' => 'channel']];
 
-        $effective = app(\App\Actions\AnalysisJob\ResolveEffectiveColumnMappingAction::class)->execute(
+        $effective = app(ResolveEffectiveColumnMappingAction::class)->execute(
             $template['fields'],
             $columnCandidates,
             $detail->column_mapping,
@@ -1327,7 +1417,7 @@ class ExecuteAnalysisJobActionTest extends TestCase
             $template['required_field_groups'],
         );
 
-        app(\App\Actions\AnalysisJob\UpdateAnalysisJobAction::class)->resumeAfterMappingConfirmation(
+        app(UpdateAnalysisJobAction::class)->resumeAfterMappingConfirmation(
             $analysisJob,
             $manualOverrides,
             $effective['effective_mapping'],

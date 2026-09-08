@@ -41,6 +41,9 @@ Route::get('/projects/{project}/analysis-jobs', [AnalysisJobController::class, '
 Route::get('/projects/{project}/analysis-jobs/{analysisJob}', [AnalysisJobController::class, 'show'])
     ->name('projects.analysis-jobs.show');
 
+Route::post('/projects/{project}/analysis-jobs/{analysisJob}/recover', [AnalysisJobController::class, 'recover'])
+    ->name('projects.analysis-jobs.recover');
+
 Route::get('/projects/{project}/analysis-jobs/{analysisJob}/mapping', [AnalysisJobController::class, 'editMapping'])
     ->name('projects.analysis-jobs.mapping.edit');
 

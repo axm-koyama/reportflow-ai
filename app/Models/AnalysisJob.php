@@ -21,6 +21,7 @@ use Illuminate\Support\Carbon;
  * @property string $title
  * @property string|null $template_key config/analysis_templates.php key, or null for free-form analysis
  * @property AnalysisJobStatus $status
+ * @property int|null $recovered_from_analysis_job_id
  * @property Carbon|null $created_at
  * @property Carbon|null $updated_at
  * @property Carbon|null $deleted_at
@@ -28,6 +29,8 @@ use Illuminate\Support\Carbon;
  * @property-read DataFile $dataFile
  * @property-read Collection<int, EvaluationFact> $evaluationFacts
  * @property-read Collection<int, ActionProposal> $actionProposals
+ * @property-read AnalysisJob|null $recoveredFrom
+ * @property-read AnalysisJob|null $recoveryAttempt
  */
 class AnalysisJob extends Model
 {
@@ -51,6 +54,7 @@ class AnalysisJob extends Model
         'title',
         'template_key',
         'status',
+        'recovered_from_analysis_job_id',
     ];
 
     /**
@@ -73,6 +77,18 @@ class AnalysisJob extends Model
     public function dataFile(): BelongsTo
     {
         return $this->belongsTo(DataFile::class, 'data_file_id', 'data_file_id');
+    }
+
+    /** @return BelongsTo<AnalysisJob, $this> */
+    public function recoveredFrom(): BelongsTo
+    {
+        return $this->belongsTo(self::class, 'recovered_from_analysis_job_id', 'analysis_job_id');
+    }
+
+    /** @return HasOne<AnalysisJob, $this> */
+    public function recoveryAttempt(): HasOne
+    {
+        return $this->hasOne(self::class, 'recovered_from_analysis_job_id', 'analysis_job_id');
     }
 
     /**
