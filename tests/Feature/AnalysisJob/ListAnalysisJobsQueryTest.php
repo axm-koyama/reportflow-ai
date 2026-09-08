@@ -10,6 +10,7 @@ use App\Models\Project;
 use App\Queries\AnalysisJob\ListAnalysisJobsQuery;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\DB;
 use Tests\TestCase;
 
 class ListAnalysisJobsQueryTest extends TestCase
@@ -43,6 +44,10 @@ class ListAnalysisJobsQueryTest extends TestCase
             fn (AnalysisJob $job): bool => $job->relationLoaded('dataFile'),
         ));
         $this->assertTrue($result->getCollection()->every(
+            fn (AnalysisJob $job): bool => $job->relationLoaded('recoveredFrom')
+                && $job->relationLoaded('recoveryAttempt'),
+        ));
+        $this->assertTrue($result->getCollection()->every(
             fn (AnalysisJob $job): bool => ! $job->relationLoaded('analysisJobDetail')
                 && ! $job->relationLoaded('evaluationFacts')
                 && ! $job->relationLoaded('actionProposals'),
@@ -68,6 +73,33 @@ class ListAnalysisJobsQueryTest extends TestCase
             $sameTimeLowerId->analysis_job_id,
             $older->analysis_job_id,
         ], $ids);
+    }
+
+    public function test_lineage_display_access_does_not_issue_per_row_queries(): void
+    {
+        $project = Project::factory()->create();
+        $dataFile = DataFile::factory()->for($project)->create();
+
+        for ($index = 0; $index < 3; $index++) {
+            $source = AnalysisJob::factory()->for($dataFile)->create();
+            AnalysisJob::factory()->for($dataFile)->create([
+                'recovered_from_analysis_job_id' => $source->analysis_job_id,
+            ]);
+        }
+
+        DB::flushQueryLog();
+        DB::enableQueryLog();
+        $jobs = app(ListAnalysisJobsQuery::class)->execute($project)->getCollection();
+        $queryCountAfterLoad = count(DB::getQueryLog());
+
+        foreach ($jobs as $job) {
+            $job->dataFile?->original_name;
+            $job->recoveredFrom?->analysis_job_id;
+            $job->recoveryAttempt?->analysis_job_id;
+        }
+
+        $this->assertSame($queryCountAfterLoad, count(DB::getQueryLog()));
+        DB::disableQueryLog();
     }
 
     public function test_it_paginates_without_duplicates_or_gaps_and_preserves_order_across_pages(): void

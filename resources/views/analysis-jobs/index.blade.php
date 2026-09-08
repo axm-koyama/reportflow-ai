@@ -43,8 +43,26 @@
                         <td>{{ $analysisJob->updated_at?->format('Y-m-d H:i') }}</td>
                         <td>
                             <a href="{{ route('projects.analysis-jobs.show', [$project, $analysisJob]) }}">View Details</a>
+                            @if ($analysisJob->recoveredFrom)
+                                <a href="{{ route('projects.analysis-jobs.show', [$project, $analysisJob->recoveredFrom]) }}">Recovered from #{{ $analysisJob->recovered_from_analysis_job_id }}</a>
+                            @endif
                             @if ($analysisJob->status === \App\Enums\AnalysisJobStatus::AwaitingMappingConfirmation)
                                 <a href="{{ route('projects.analysis-jobs.mapping.edit', [$project, $analysisJob]) }}">Review Mapping</a>
+                            @endif
+                            @if ($analysisJob->status === \App\Enums\AnalysisJobStatus::Failed)
+                                @if ($analysisJob->recoveryAttempt)
+                                    <a href="{{ route('projects.analysis-jobs.show', [$project, $analysisJob->recoveryAttempt]) }}">View Recovery Attempt</a>
+                                @elseif ($project->status === \App\Enums\ProjectStatus::Active)
+                                    <form method="POST" action="{{ route('projects.analysis-jobs.recover', [$project, $analysisJob]) }}">
+                                        @csrf
+                                        <button
+                                            type="submit"
+                                            class="btn"
+                                            onclick="return confirm('Create a new recovery attempt? This may make new AI calls and incur additional cost.')"
+                                        >Create Recovery Attempt</button>
+                                        <span class="hint">This creates a new attempt and may make new AI calls and incur additional cost. The failed attempt remains unchanged.</span>
+                                    </form>
+                                @endif
                             @endif
                         </td>
                     </tr>

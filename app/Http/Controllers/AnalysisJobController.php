@@ -6,6 +6,7 @@ namespace App\Http\Controllers;
 
 use App\Actions\AnalysisJob\BuildAnalysisTemplateColumnCandidatesAction;
 use App\Actions\AnalysisJob\CreateAnalysisJobAction;
+use App\Actions\AnalysisJob\RecoverFailedAnalysisJobAction;
 use App\Actions\AnalysisJob\ResolveAnalysisTemplateAction;
 use App\Actions\AnalysisJob\ResolveEffectiveColumnMappingAction;
 use App\Actions\AnalysisJob\UpdateAnalysisJobAction;
@@ -70,6 +71,26 @@ class AnalysisJobController extends Controller
         return redirect()->route('projects.analysis-jobs.show', [$project, $analysisJob]);
     }
 
+    public function recover(
+        Project $project,
+        AnalysisJob $analysisJob,
+        RecoverFailedAnalysisJobAction $action,
+    ): RedirectResponse {
+        $analysisJob->loadMissing('dataFile');
+        $this->ensureAnalysisJobBelongsToProject($project, $analysisJob);
+        $this->ensureProjectIsActive($project);
+
+        $result = $action->execute($project, $analysisJob);
+
+        $message = $result['created']
+            ? 'A new recovery attempt was created. This attempt may make new AI calls and incur additional cost.'
+            : 'A recovery attempt already exists. Opening the existing attempt.';
+
+        return redirect()
+            ->route('projects.analysis-jobs.show', [$project, $result['analysis_job']])
+            ->with('success', $message);
+    }
+
     /**
      * Display the details of an analysis job.
      *
@@ -106,6 +127,8 @@ class AnalysisJobController extends Controller
             'evaluationFacts.priorityResult',
             'actionProposals.evaluationFact',
             'actionProposals.priorityResult',
+            'recoveredFrom',
+            'recoveryAttempt',
         ]);
 
         $this->ensureAnalysisJobBelongsToProject($project, $analysisJob);

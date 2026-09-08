@@ -29,6 +29,16 @@
         <dt>Completed At</dt><dd>{{ $detail?->completed_at?->format('Y-m-d H:i:s') ?? '-' }}</dd>
     </dl>
 
+    @if ($analysisJob->recoveredFrom)
+        <section class="card">
+            <p>
+                <a href="{{ route('projects.analysis-jobs.show', [$project, $analysisJob->recoveredFrom]) }}">
+                    Recovered from AnalysisJob #{{ $analysisJob->recovered_from_analysis_job_id }}
+                </a>
+            </p>
+        </section>
+    @endif
+
     @if ($templateName && $detail?->column_mapping)
         <section class="card">
             <h2>使用した列</h2>
@@ -60,6 +70,24 @@
         </div>
     @elseif ($analysisJob->status === \App\Enums\AnalysisJobStatus::Failed)
         <div class="alert-error"><strong>Analysis failed:</strong> {{ $detail?->error_message }}</div>
+        <section class="card">
+            @if ($analysisJob->recoveryAttempt)
+                <a href="{{ route('projects.analysis-jobs.show', [$project, $analysisJob->recoveryAttempt]) }}">View Recovery Attempt</a>
+            @elseif ($project->status === \App\Enums\ProjectStatus::Active)
+                <p>Recovery creates a new AnalysisJob attempt. This failed attempt remains unchanged.</p>
+                <p class="hint">The new attempt may make new AI calls and incur additional cost.</p>
+                <form method="POST" action="{{ route('projects.analysis-jobs.recover', [$project, $analysisJob]) }}">
+                    @csrf
+                    <button
+                        type="submit"
+                        class="btn"
+                        onclick="return confirm('Create a new recovery attempt? This may make new AI calls and incur additional cost.')"
+                    >Create Recovery Attempt</button>
+                </form>
+            @else
+                <p class="hint">Recovery attempts can only be created for an active project.</p>
+            @endif
+        </section>
     @elseif ($analysisJob->status === \App\Enums\AnalysisJobStatus::Completed)
         @php($result = $detail?->result ?? [])
 
