@@ -1,0 +1,199 @@
+{
+  "feature": "Failed Analysis Recovery v1",
+  "specification": "docs/product/FAILED_ANALYSIS_RECOVERY.md#17, #19",
+  "validation_date": "2026-09-07",
+  "branch": "feature/failed-analysis-recovery-v1",
+  "mode": "Docker/MySQL + Browser Product Validation, zero OpenAI calls, queue worker not started",
+  "environment": {
+    "app_env": "local",
+    "db_connection": "mysql",
+    "db_host": "mysql",
+    "db_port": 3306,
+    "db_database": "reportflow",
+    "db_server_version": "8.4.11 (PDO ATTR_SERVER_VERSION)",
+    "php_version": "8.5.9",
+    "laravel_version": "13.23.0",
+    "queue_connection": "database",
+    "cache_store": "database",
+    "openai_endpoint_configured": "https://api.openai.com/v1/responses (never contacted this session)",
+    "confirmed_local_not_shared_or_production": true,
+    "network": "reportflow-ai_reportflow (private Docker bridge, 172.19.0.0/16)",
+    "queue_worker_running_before": false,
+    "queue_worker_running_after": false,
+    "processes_in_app_container": ["php-fpm: master process", "php-fpm: pool www", "php-fpm: pool www"]
+  },
+  "migration": {
+    "status_before": "2026_09_07_000000_add_recovery_lineage_to_analysis_jobs_table: Pending (all others already Ran through batch 9)",
+    "pretend_sql": [
+      "alter table `analysis_jobs` add `recovered_from_analysis_job_id` bigint unsigned null after `status`",
+      "alter table `analysis_jobs` add constraint `analysis_jobs_recovery_source_fk` foreign key (`recovered_from_analysis_job_id`) references `analysis_jobs` (`analysis_job_id`) on delete restrict",
+      "alter table `analysis_jobs` add unique `analysis_jobs_recovery_source_uniq`(`recovered_from_analysis_job_id`)"
+    ],
+    "applied": true,
+    "applied_batch": 10,
+    "duration_ms": 216.49,
+    "show_create_table_confirms": {
+      "column": "`recovered_from_analysis_job_id` bigint unsigned DEFAULT NULL",
+      "unique_key": "UNIQUE KEY `analysis_jobs_recovery_source_uniq` (`recovered_from_analysis_job_id`)",
+      "foreign_key": "CONSTRAINT `analysis_jobs_recovery_source_fk` FOREIGN KEY (`recovered_from_analysis_job_id`) REFERENCES `analysis_jobs` (`analysis_job_id`) ON DELETE RESTRICT",
+      "engine": "InnoDB",
+      "no_redundant_index_created": true
+    },
+    "existing_rows_lineage_null": { "null_count": 58, "total_count": 58, "non_null_count": 0 },
+    "rollback_performed": false,
+    "restrict_and_unique_live_verification": {
+      "method": "dedicated synthetic Project/DataFile/AnalysisJob pair created inside DB::beginTransaction(), then rolled back",
+      "force_delete_of_parent_blocked": true,
+      "force_delete_error": "SQLSTATE[23000] 1451 Cannot delete or update a parent row: a foreign key constraint fails (CONSTRAINT analysis_jobs_recovery_source_fk ... ON DELETE RESTRICT)",
+      "second_child_insert_blocked": true,
+      "second_child_error": "SQLSTATE[23000] 1062 Duplicate entry '95' for key 'analysis_jobs.analysis_jobs_recovery_source_uniq'",
+      "verification_transaction_rolled_back": true,
+      "residue_after_rollback": "none (temp project count 0, analysis_jobs count back to 58)"
+    }
+  },
+  "docker_test_results": {
+    "targeted_suite": {
+      "command": "php artisan test <Recovery + AnalysisJob model/action/controller/history + Mapping + ExecuteAnalysisJob + ControlledAction tests>",
+      "result": "117 passed, 0 failed (876 assertions)",
+      "note": "Includes tests added since the prior read-only review that were not seen before: 'simulated unique race returns competing child without dispatch', 'unique violation detection requires sqlstate and recovery constraint identity', 'wrong project returns 404 without any recovery side effect', 'recovery child without mapping runs mapping planning and analysis pipeline' -- these directly address every Finding and Missing-test gap raised in this reviewer's prior read-only review."
+    },
+    "full_suite": {
+      "command": "php artisan test",
+      "result": "722 passed, 1 skipped, 0 failed (2683 assertions)",
+      "note": "The 1 skip is the pre-existing Tests\\Feature\\Priority\\GoldenPriorityEvalTest fixture, unrelated to Recovery."
+    },
+    "driver_disclosure": "ALL of the above automated test results ran against SQLite (phpunit.xml pins DB_CONNECTION=sqlite, DB_DATABASE=:memory:), NOT the MySQL instance validated in this report. MySQL schema/constraint behavior is reported separately under 'migration' above, verified by direct execution against the real Docker MySQL 8.4.11 instance, not inferred from the SQLite test results."
+  },
+  "pint": {
+    "command": "./vendor/bin/pint --test <15 changed files>",
+    "result": "PASS, 15/15 files, no changes needed"
+  },
+  "git_diff_check": {
+    "before": "clean, exit 0",
+    "after": "clean, exit 0"
+  },
+  "synthetic_fixture": {
+    "marker": "FARV20260907",
+    "created_via": "temporary standalone PHP runner bootstrapped through bootstrap/app.php, executed at /tmp inside the app container (never bind-mounted into the host repo), deleted immediately after execution",
+    "active_project_id": 31,
+    "archived_project_id": 32,
+    "other_project_id": 33,
+    "seeded_jobs": {
+      "98": "Failed With Effective Mapping",
+      "99": "Failed With Column Mapping Only",
+      "100": "Failed Without Mapping",
+      "101": "Failed Free Analysis",
+      "102": "Pending Job",
+      "103": "Processing Job",
+      "104": "Awaiting Mapping Confirmation Job",
+      "105": "Completed Job",
+      "106": "Failed With Existing Child (parent)",
+      "107": "Pre-seeded Recovery Child (of 106)",
+      "108": "Chain Root (recovered live in Browser)",
+      "109": "Concurrent POST Race Source",
+      "110": "Failed With Downstream Records (EvaluationFact/DiagnosisResult/PriorityResult/ActionProposal attached)",
+      "111": "Archived Project Failed Source",
+      "112": "Other Project Failed Source"
+    },
+    "no_pre_existing_data_deleted": true,
+    "all_created_rows_identifiable_by_prefix": "FARV20260907"
+  },
+  "browser_results": {
+    "history_page_row_precision": "Confirmed via full-page text dump (get_page_text): all 15 seeded rows plus every subsequently-created child rendered with exactly the correct action set per row -- 'Create Recovery Attempt' + cost hint only on childless Failed rows, 'View Recovery Attempt' only on Failed rows with a child, 'Recovered from #ID' only on recovery children, no recovery control at all on Pending/Processing/AwaitingMappingConfirmation/Completed rows, 'Review Mapping' preserved and unaffected on the AwaitingMappingConfirmation row.",
+    "confirmation_dialog_text_exact": "Create a new recovery attempt? This may make new AI calls and incur additional cost.",
+    "confirmation_dialog_blocks_submission_when_cancelled": true,
+    "confirmation_dialog_evidence": "Clicked the real submit button once; the automated browser's native confirm() auto-cancels, and read_network_requests confirmed zero POST to /recover resulted -- directly proving the confirm() gate actually blocks submission.",
+    "post_submission_method_note": "Because the native confirm() dialog cannot be accepted through the available browser-automation primitives (only cancelled), subsequent real recovery submissions were performed via form.requestSubmit() (the same CSRF-protected <form>, same server-side validation) to exercise the POST path end-to-end.",
+    "csrf_form": { "method": "post", "csrf_token_present": true, "csrf_token_length": 40, "action_correct_per_row": true },
+    "flash_messages_exact": {
+      "created": "A new recovery attempt was created. This attempt may make new AI calls and incur additional cost.",
+      "already_exists": "A recovery attempt already exists. Opening the existing attempt."
+    },
+    "recovery_child_detail_link_text": "Recovered from AnalysisJob #{source_id}",
+    "source_detail_form_removed_after_child_exists": true,
+    "archived_project": {
+      "detail_page_message": "Recovery attempts can only be created for an active project.",
+      "no_form_shown": true,
+      "history_page_readable": true,
+      "history_page_no_recovery_control": true,
+      "direct_post_result": "no child created, jobs table unchanged (3 before and after)"
+    },
+    "wrong_project": {
+      "get_result": "HTTP 404",
+      "post_result": "HTTP 404",
+      "no_child_created": true,
+      "jobs_table_unchanged": true
+    },
+    "existing_flows_unbroken": {
+      "review_mapping_navigation": "confirmed working end-to-end to the existing Mapping Confirmation screen, template and DataFile rendered correctly, no submission performed",
+      "data_files_and_projects_navigation": "unaffected (pre-existing links present)"
+    }
+  },
+  "copy_reset_source_immutability": {
+    "verified_recoveries": [
+      { "source": 98, "child": 113, "scenario": "effective Mapping" },
+      { "source": 99, "child": 114, "scenario": "column Mapping only" },
+      { "source": 100, "child": 120, "scenario": "no Mapping" },
+      { "source": 110, "child": 115, "scenario": "downstream records present" },
+      { "source": 108, "child": 116, "scenario": "chain link 1->2" },
+      { "source": 116, "child": 117, "scenario": "chain link 2->3" },
+      { "source": 109, "child": 119, "scenario": "concurrent POST race" }
+    ],
+    "copied_to_child_confirmed_equal": ["data_file_id", "title", "template_key", "prompt", "column_mapping", "manual_column_mapping", "effective_column_mapping"],
+    "child_reset_to_null_confirmed": ["raw_response", "result", "error_message", "started_at", "completed_at"],
+    "child_status_confirmed": "Pending for every direct recovery (chain link 2, job 116, was afterwards manually flipped to Failed as deliberate test setup to exercise the chain, not by the Action)",
+    "source_unchanged_confirmed_fields": ["status", "title", "template_key", "created_at", "updated_at (AnalysisJob row)", "error_message", "started_at", "completed_at", "raw_response", "result"],
+    "source_updated_at_note": "AnalysisJobDetail.updated_at for source 98 reflects the original seed-script insert time (20:58:27), predating the Browser session -- confirmed NOT touched by the recovery itself (re-verified: RecoverFailedAnalysisJobAction never calls save/update/fill on the locked source or its detail).",
+    "downstream_not_copied": {
+      "source_110_before_and_after": { "evaluation_facts": 1, "diagnosis_results": 1, "priority_results": 1, "action_proposals": 1 },
+      "child_115": { "evaluation_facts": 0, "diagnosis_results": 0, "priority_results": 0, "action_proposals": 0 }
+    }
+  },
+  "queue_and_duplicate_post": {
+    "jobs_table_before_recoveries": 0,
+    "jobs_table_after_all_recoveries": 7,
+    "one_dispatch_per_successful_recovery": true,
+    "dispatch_payload_targets_child_id_not_source_id": "directly confirmed: job 98's queued payload contained analysisJobId=113 (the child), and afterCommit=true was present in the serialized command",
+    "all_queued_jobs_confirmed_untouched": { "attempts": 0, "reserved_at": "NULL for all 7 rows" },
+    "duplicate_post_result": {
+      "source": 99,
+      "first_post": "created child 114, jobs table +1",
+      "second_post_via_raw_fetch_with_valid_csrf": "redirected to the same child 114, flash message exactly 'A recovery attempt already exists. Opening the existing attempt.', jobs table unchanged",
+      "third_post": "same result, no growth"
+    },
+    "failed_jobs_table_before": 2,
+    "failed_jobs_table_after": 2,
+    "failed_jobs_content_unchanged": true
+  },
+  "concurrent_post": {
+    "source_id": 109,
+    "method": "two independent curl sessions (separate cookie jars, separately-fetched CSRF tokens) launched as background processes and awaited together, not sequential application-level calls",
+    "results": {
+      "session_a": { "status": 302, "location": "/projects/31/analysis-jobs/119" },
+      "session_b": { "status": 302, "location": "/projects/31/analysis-jobs/119" }
+    },
+    "no_500_error": true,
+    "unique_exception_exposed_to_user": false,
+    "direct_children_of_source_109": [119],
+    "jobs_queued_for_source_109": 1,
+    "source_109_status_after": "Failed (unchanged)",
+    "true_db_level_race_vs_serialization_disclosure": "Both requests returned a clean redirect to the identical child with exactly one queued dispatch, which is the REQUIRED observable outcome either way. Whether MySQL's row lock was genuinely contended (one transaction blocking on FOR UPDATE while the other held it, then resolving via the QueryException/isRecoveryLineageUniqueViolation catch path) or the two requests were serialized earlier by PHP-FPM/OS scheduling such that the second transaction did not begin until after the first had already committed (resolving via the ordinary existingChild pre-check) could not be conclusively distinguished from outside the database engine in this environment -- no lock-wait/transaction-timing instrumentation was captured. This is reported as an open question, not claimed as a confirmed true-race observation, per instruction."
+  },
+  "recovery_chain": {
+    "chain": "Failed #108 -> Pending #116 (via live POST) -> manually flipped to Failed (test setup only, not app code) -> Pending #117 (via live POST)",
+    "direct_children_of_108": [116],
+    "direct_children_of_116": [117],
+    "second_child_attempt_for_108_blocked": true,
+    "second_child_attempt_error": "SQLSTATE[23000] 1062 (real MySQL unique violation)",
+    "links_correct": true
+  },
+  "artifacts": {
+    "screenshots_saved_to_disk": false,
+    "screenshots_disclosure": "This session's Browser tool has no capability to persist captured screenshot images as files on disk (same limitation encountered and disclosed in the prior Analysis History Product Validation session). Every screenshot referenced in this report and its companion notes file was captured and visually inspected within this conversation only -- it is NOT claimed to be saved here. See validation-20260907-notes.md for a textual description of each."
+  },
+  "product_code_changed": false,
+  "protected_files_touched": false,
+  "migration_applied_to_local_mysql_only": true,
+  "commit_performed": false,
+  "push_performed": false
+}
