@@ -129,6 +129,7 @@ class AnalysisJobController extends Controller
             'actionProposals.priorityResult',
             'recoveredFrom',
             'recoveryAttempt',
+            'report:report_id,analysis_job_id',
         ]);
 
         $this->ensureAnalysisJobBelongsToProject($project, $analysisJob);

@@ -3,6 +3,7 @@
 use App\Http\Controllers\AnalysisJobController;
 use App\Http\Controllers\DataFileController;
 use App\Http\Controllers\ProjectController;
+use App\Http\Controllers\ReportController;
 use Illuminate\Support\Facades\Route;
 
 Route::get('/', function () {
@@ -43,6 +44,12 @@ Route::get('/projects/{project}/analysis-jobs/{analysisJob}', [AnalysisJobContro
 
 Route::post('/projects/{project}/analysis-jobs/{analysisJob}/recover', [AnalysisJobController::class, 'recover'])
     ->name('projects.analysis-jobs.recover');
+
+Route::post('/projects/{project}/analysis-jobs/{analysisJob}/report', [ReportController::class, 'store'])
+    ->name('projects.analysis-jobs.reports.store');
+
+Route::get('/projects/{project}/reports/{report}', [ReportController::class, 'show'])
+    ->name('projects.reports.show');
 
 Route::get('/projects/{project}/analysis-jobs/{analysisJob}/mapping', [AnalysisJobController::class, 'editMapping'])
     ->name('projects.analysis-jobs.mapping.edit');

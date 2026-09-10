@@ -31,6 +31,7 @@ use Illuminate\Support\Carbon;
  * @property-read Collection<int, ActionProposal> $actionProposals
  * @property-read AnalysisJob|null $recoveredFrom
  * @property-read AnalysisJob|null $recoveryAttempt
+ * @property-read Report|null $report
  */
 class AnalysisJob extends Model
 {
@@ -115,5 +116,11 @@ class AnalysisJob extends Model
     public function actionProposals(): HasMany
     {
         return $this->hasMany(ActionProposal::class, 'analysis_job_id', 'analysis_job_id');
+    }
+
+    /** @return HasOne<Report, $this> */
+    public function report(): HasOne
+    {
+        return $this->hasOne(Report::class, 'analysis_job_id', 'analysis_job_id');
     }
 }

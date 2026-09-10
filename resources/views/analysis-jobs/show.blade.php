@@ -91,6 +91,20 @@
     @elseif ($analysisJob->status === \App\Enums\AnalysisJobStatus::Completed)
         @php($result = $detail?->result ?? [])
 
+        <section class="card">
+            <h2>HTML Report</h2>
+            @if ($analysisJob->report)
+                <a href="{{ route('projects.reports.show', [$project, $analysisJob->report]) }}" class="btn">View HTML Report</a>
+            @elseif ($project->status === \App\Enums\ProjectStatus::Active)
+                <form method="POST" action="{{ route('projects.analysis-jobs.reports.store', [$project, $analysisJob]) }}">
+                    @csrf
+                    <button type="submit" class="btn">Generate HTML Report</button>
+                </form>
+            @else
+                <p class="hint">HTML Reports can only be generated while the project is active.</p>
+            @endif
+        </section>
+
         <section class="card"><h2>Summary</h2><p>{{ $result['summary'] ?? '-' }}</p></section>
         <section class="card">
             <h2>Highlights</h2>
