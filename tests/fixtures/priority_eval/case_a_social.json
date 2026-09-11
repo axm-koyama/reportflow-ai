@@ -1,0 +1,24 @@
+{
+    "case": "case_a_social",
+    "description": "Product Validation Case A — Social: CVR 3.50% vs display baseline 4.90%, Below + High. All 5 channels have equal clicks (12,000), total = 60,000 — same impact as Display, but a larger leave-one-out gap (2520/48000 = 0.0525).",
+    "template_key": "ad_performance",
+    "trigger_fact": {
+        "entity_key": "Social",
+        "metric_key": "conversion_rate",
+        "direction": "below",
+        "evaluation_level": "high",
+        "metric_value": 0.035,
+        "test_baseline_value": 0.0525,
+        "denominator_value": 12000
+    },
+    "impact_context": {
+        "impact_total": 60000
+    },
+    "expected": {
+        "eligible": true,
+        "priority_band": "medium",
+        "min_score": 0.17,
+        "max_score": 0.18,
+        "greater_than": "case_a_display"
+    }
+}

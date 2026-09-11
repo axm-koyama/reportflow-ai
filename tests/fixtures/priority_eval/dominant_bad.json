@@ -1,0 +1,24 @@
+{
+    "case": "dominant_bad",
+    "description": "New Priority-specific synthetic case (large impact + large gap) — 'Dominant Bad Channel', 70% traffic share: Social 70,000 clicks at CVR 2.0%, peers (leave-one-out control) 30,000 clicks at CVR 6.0% combined, total 100,000 clicks. test_baseline_value = 1800/30000 = 0.06 exactly (peers only — this is the self-dilution regression fixture: under the old display-baseline formula this scenario's gap was diluted down to ~1.2pp by Social's own 70% share; against the leave-one-out control the true peer gap is the full 4.0pp). Independently computed via TwoProportionZTestAction's own formula: pooled p = 0.032, z ~= -32.9 -> evaluation_level = high, direction = below.",
+    "template_key": "ad_performance",
+    "trigger_fact": {
+        "entity_key": "Social",
+        "metric_key": "conversion_rate",
+        "direction": "below",
+        "evaluation_level": "high",
+        "metric_value": 0.02,
+        "test_baseline_value": 0.06,
+        "denominator_value": 70000
+    },
+    "impact_context": {
+        "impact_total": 100000
+    },
+    "expected": {
+        "eligible": true,
+        "priority_band": "high",
+        "min_score": 0.69,
+        "max_score": 0.71,
+        "greater_than": "case_a_social"
+    }
+}

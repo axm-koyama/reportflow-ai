@@ -1,0 +1,24 @@
+{
+    "case": "case_c_email",
+    "description": "Product Validation Case C (dominant channel) — Email: CVR 3.00% vs display baseline 5.03%, Below + High. Same denominator share as Display (2,500 / 100,000) but a larger gap against the leave-one-out control (4950/97500 = 0.050769...) — this pair is the concrete evidence for the core Phase 4-C finding: Evaluation High does not imply Priority High when the entity's traffic share is tiny (both entities land in the Low band despite a High Evaluation Level).",
+    "template_key": "ad_performance",
+    "trigger_fact": {
+        "entity_key": "Email",
+        "metric_key": "conversion_rate",
+        "direction": "below",
+        "evaluation_level": "high",
+        "metric_value": 0.03,
+        "test_baseline_value": 0.050769231,
+        "denominator_value": 2500
+    },
+    "impact_context": {
+        "impact_total": 100000
+    },
+    "expected": {
+        "eligible": true,
+        "priority_band": "low",
+        "min_score": 0.024,
+        "max_score": 0.026,
+        "greater_than": "case_c_display"
+    }
+}

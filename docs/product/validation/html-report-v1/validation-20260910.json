@@ -1,0 +1,281 @@
+{
+  "feature": "HTML Report Module v1",
+  "specification": "docs/product/HTML_REPORT_MODULE.md",
+  "review_rules": "docs/development/AI_CODE_REVIEW.md",
+  "validation_date": "2026-09-10",
+  "branch": "feature/html-report-module-v1",
+  "head_sha": "d6e6ec23c145658f5868b25e76caaa9b0530a14d",
+  "mode": "Docker/MySQL + Browser Product Validation, zero OpenAI calls, queue worker never started",
+  "environment": {
+    "app_env": "local",
+    "db_connection": "mysql",
+    "db_host": "mysql",
+    "db_port": 3306,
+    "db_database": "reportflow",
+    "db_server_version": "8.4.11 (PDO ATTR_SERVER_VERSION)",
+    "php_version": "8.5.9",
+    "laravel_version": "13.23.0",
+    "queue_connection": "database",
+    "app_url": "http://localhost:18080",
+    "openai_endpoint_configured": "https://api.openai.com/v1/responses",
+    "openai_model_configured": "gpt-5.4-mini",
+    "openai_contacted_this_session": false,
+    "docker_network": "reportflow-ai_reportflow (private bridge, 172.19.0.0/16, app+mysql same compose project)",
+    "confirmed_local_not_shared_or_production": true,
+    "queue_worker_running_before": false,
+    "queue_worker_running_after": false,
+    "processes_in_app_container": ["php-fpm: master process", "php-fpm: pool www", "php-fpm: pool www"]
+  },
+  "safety_confirmation": {
+    "app_env_not_production": true,
+    "db_connection_is_mysql": true,
+    "db_host_is_compose_mysql_service": true,
+    "db_is_local_reportflow_db": true,
+    "not_shared_staging_or_production": true,
+    "app_and_mysql_same_compose_project": true,
+    "queue_worker_not_running": true,
+    "baseline_counts_before_migration": {
+      "reports_table": "not present",
+      "jobs": 0,
+      "failed_jobs": 2,
+      "analysis_jobs": 80,
+      "projects": 8,
+      "data_files": 20
+    }
+  },
+  "migration": {
+    "target": "2026_09_08_000000_create_reports_table",
+    "status_before": "Pending (all others already Ran through batch 10)",
+    "pretend_sql": [
+      "create table `reports` (`report_id` bigint unsigned not null auto_increment primary key, `analysis_job_id` bigint unsigned not null, `title` varchar(255) not null, `snapshot_json` json not null, `rendered_html` longtext not null, `schema_version` varchar(50) not null, `renderer_version` varchar(50) not null, `content_hash` char(64) not null, `generated_at` timestamp not null, `created_at` timestamp null, `updated_at` timestamp null) default character set utf8mb4 collate 'utf8mb4_unicode_ci'",
+      "alter table `reports` add constraint `reports_analysis_job_fk` foreign key (`analysis_job_id`) references `analysis_jobs` (`analysis_job_id`) on delete cascade",
+      "alter table `reports` add unique `reports_analysis_job_uniq`(`analysis_job_id`)"
+    ],
+    "destroys_or_alters_other_tables": false,
+    "applied": true,
+    "applied_batch": 11,
+    "duration_ms": 205.33,
+    "rollback_performed": false,
+    "down_reviewed_code_only": "Schema::dropIfExists('reports') -- drops only the reports table",
+    "show_create_table_reports": "CREATE TABLE `reports` (\n  `report_id` bigint unsigned NOT NULL AUTO_INCREMENT,\n  `analysis_job_id` bigint unsigned NOT NULL,\n  `title` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,\n  `snapshot_json` json NOT NULL,\n  `rendered_html` longtext COLLATE utf8mb4_unicode_ci NOT NULL,\n  `schema_version` varchar(50) COLLATE utf8mb4_unicode_ci NOT NULL,\n  `renderer_version` varchar(50) COLLATE utf8mb4_unicode_ci NOT NULL,\n  `content_hash` char(64) COLLATE utf8mb4_unicode_ci NOT NULL,\n  `generated_at` timestamp NOT NULL,\n  `created_at` timestamp NULL DEFAULT NULL,\n  `updated_at` timestamp NULL DEFAULT NULL,\n  PRIMARY KEY (`report_id`),\n  UNIQUE KEY `reports_analysis_job_uniq` (`analysis_job_id`),\n  CONSTRAINT `reports_analysis_job_fk` FOREIGN KEY (`analysis_job_id`) REFERENCES `analysis_jobs` (`analysis_job_id`) ON DELETE CASCADE\n) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
+    "checklist": {
+      "report_id_bigint_unsigned_pk": true,
+      "analysis_job_id_bigint_unsigned_not_null": true,
+      "title_varchar255_not_null": true,
+      "snapshot_json_json_not_null": true,
+      "rendered_html_longtext_not_null": true,
+      "schema_version_varchar50_not_null": true,
+      "renderer_version_varchar50_not_null": true,
+      "content_hash_char64_not_null": true,
+      "generated_at_timestamp_not_null": true,
+      "timestamps_present": true,
+      "fk_name_reports_analysis_job_fk": true,
+      "fk_references_analysis_jobs_analysis_job_id": true,
+      "on_delete_cascade": true,
+      "unique_name_reports_analysis_job_uniq": true,
+      "unique_target_analysis_job_id": true,
+      "charset_utf8mb4": true,
+      "collation_utf8mb4_unicode_ci": true,
+      "engine_innodb": true
+    }
+  },
+  "constraint_verification": {
+    "method": "dedicated synthetic Project/DataFile/AnalysisJob created inside DB::beginTransaction(), rolled back at the end",
+    "first_report_insert": "succeeded",
+    "second_report_same_analysis_job": {
+      "result": "blocked",
+      "sqlstate": "23000",
+      "driver_code": 1062,
+      "constraint_name_in_message": true,
+      "summary": "Duplicate entry violation on reports_analysis_job_uniq"
+    },
+    "cascade_delete": {
+      "reports_before_force_delete_of_parent": 1,
+      "reports_after_force_delete_of_parent": 0,
+      "result": "cascade delete confirmed"
+    },
+    "transaction_rolled_back": true,
+    "residue_after_rollback": "none (temp project count 0, reports count 0, analysis_jobs count back to 80)",
+    "note": "This is a DB constraint check, not a true concurrent-HTTP/InnoDB-lock-contention observation; see unverified_items."
+  },
+  "docker_test_results": {
+    "targeted_suite": {
+      "command": "php artisan test tests/Feature/Report/ tests/Unit/Actions/Report/ tests/Feature/AnalysisJob/ tests/Feature/ActionProposal/ tests/Feature/Evaluation/ tests/Feature/Priority/",
+      "result": "457 passed, 1 skipped, 0 failed (1990 assertions)",
+      "note": "The 1 skip is the pre-existing Tests\\Feature\\Priority\\GoldenPriorityEvalTest fixture, unrelated to this feature."
+    },
+    "full_suite": {
+      "command": "php artisan test",
+      "result": "753 passed, 1 skipped, 0 failed (2862 assertions)"
+    },
+    "test_db_driver_disclosure": "Executed INSIDE the Docker app container, but phpunit.xml pins DB_CONNECTION=sqlite / DB_DATABASE=:memory:. This is 'Docker内で実行したが、テストDBはSQLite' -- NOT a MySQL test run. Only the separately-performed manual migration/constraint/hash steps above and below used the real MySQL connection."
+  },
+  "pint": {
+    "command": "./vendor/bin/pint --test <18 changed files>",
+    "result": "PASS, 18/18 files, no changes needed"
+  },
+  "synthetic_fixture": {
+    "marker": "HTRV20260910",
+    "created_via": "temporary standalone PHP runner bootstrapped through bootstrap/app.php, executed at /tmp inside the app container (never bind-mounted into the host repo), deleted immediately after execution",
+    "constraint": "no real CSV uploaded, no AI processing executed; AnalysisJobs created directly as Completed via factories/direct persistence",
+    "projects": {
+      "35": "HTRV20260910 Active Project",
+      "36": "HTRV20260910 Archive-After-Report Project (archived during Scenario 8)",
+      "37": "HTRV20260910 Archived No Report Project (Archived from creation)",
+      "38": "HTRV20260910 Other Project (cross-project check)"
+    },
+    "data_file_a_id": 58,
+    "scenarios": [
+      {"scenario": "1: Complete Decision-enabled", "analysis_job_id": 122, "report_id": 3},
+      {"scenario": "2: Free Analysis + legacy recommendations / Controlled Action state (not applicable)", "analysis_job_id": 123, "report_id": 4},
+      {"scenario": "3: Evaluation-not-applicable template", "analysis_job_id": 124, "report_id": 5},
+      {"scenario": "4: Eligible but unavailable / Controlled Action state (applicable, 0 eligible)", "analysis_job_id": 125, "report_id": 6},
+      {"scenario": "5c: eligible Action candidate, no proposal", "analysis_job_id": 126, "report_id": 7},
+      {"scenario": "10: Japanese / long table / HTML-escape", "analysis_job_id": 127, "report_id": 9},
+      {"scenario": "8: Archived Project (report generated before archiving)", "analysis_job_id": 128, "report_id": 8},
+      {"scenario": "8: Archived Project, no report (generation must be rejected)", "analysis_job_id": 129, "report_id": null},
+      {"scenario": "7: cross-Project rejection target", "analysis_job_id": 130, "report_id": null}
+    ]
+  },
+  "browser_scenarios": {
+    "1_complete_decision_enabled": {
+      "generate_button_shown_before": true,
+      "post_redirect": "to /projects/35/reports/3",
+      "flash_message": "Report generated.",
+      "reports_row_count_for_job": 1,
+      "sections_confirmed_rendered": ["Summary", "Highlights", "Metrics", "Tables", "Insights", "Evaluation", "原因の仮説 (Diagnosis, available)", "確認優先度 (Priority, High)", "Controlled Actions (real proposal)"],
+      "advisory_label_exact": "Advisory only — not executed",
+      "detail_page_switches_to_view_link": true,
+      "ai_call": false,
+      "queue_row_increase": 0
+    },
+    "2_free_analysis_legacy": {
+      "mode": "Free Analysis",
+      "legacy_recommendation_shown": "Legacy recommendation / This is a pre-Decision-enabled style recommendation. / Priority: medium",
+      "http_500": false,
+      "evaluation_text": "Evaluation is not applicable to this analysis.",
+      "diagnosis_text": "No diagnosis-eligible evidence was included.",
+      "priority_text": "No priority evidence was included.",
+      "controlled_action_state": "Controlled Actions are not applicable to this analysis.",
+      "non_conclusive_wording_confirmed": true
+    },
+    "3_evaluation_not_applicable": {
+      "template": "sales_analysis (売上分析)",
+      "core_analysis_shown": true,
+      "evaluation_text": "Evaluation is not applicable to this analysis.",
+      "no_false_no_issue_claim": true,
+      "generation_succeeded": true
+    },
+    "4_eligible_but_unavailable": {
+      "diagnosis_text": "Diagnosis was unavailable for this eligible evidence.",
+      "priority_text": "Priority was unavailable for this eligible evidence.",
+      "distinguished_from_not_eligible": true,
+      "report_generated_and_displayed": true,
+      "absence_not_interpreted_as_no_problem": true
+    },
+    "5_controlled_action_three_states": {
+      "state_1_not_applicable": "Controlled Actions are not applicable to this analysis. (job 123)",
+      "state_2_applicable_zero_eligible": "No evidence currently meets the controlled eligibility contract. (job 125)",
+      "state_3_eligible_no_proposal": "Eligible evidence existed, but proposals are best-effort output and may be unavailable. (job 126)",
+      "all_three_wordings_distinct": true,
+      "no_action_is_needed_string_found": false
+    },
+    "6_duplicate_generation": {
+      "second_post_redirect": "same report_id=3",
+      "reports_row_count": 1,
+      "snapshot_json_unchanged": true,
+      "rendered_html_unchanged": true,
+      "content_hash_unchanged": true,
+      "generated_at_unchanged": "2026-09-10 06:16:15 both times",
+      "updated_at_unchanged": true,
+      "queue_row_increase": 0,
+      "ai_call": false
+    },
+    "7_cross_project_rejection": {
+      "get_other_project_job_via_wrong_project_url": "404",
+      "post_report_generation_via_wrong_project_url": "404, status 404",
+      "get_existing_report_via_wrong_project_url": "404",
+      "new_report_created": false,
+      "existing_report_changed": false,
+      "queue_row_increase": 0
+    },
+    "8_archived_project": {
+      "existing_report_viewable_after_archive": true,
+      "duplicate_post_while_archived": {
+        "redirect": "same report_id=8",
+        "flash": "Opening the existing report.",
+        "content_hash_unchanged": true
+      },
+      "archived_no_report_job": {
+        "generate_control_shown": false,
+        "explanation_text_shown": "HTML Reports can only be generated while the project is active.",
+        "direct_post_creates_no_report": true
+      }
+    },
+    "9_snapshot_immutability": {
+      "report_id": 3,
+      "mutated_after_generation": ["AnalysisJob.title", "AnalysisJobDetail.result.summary", "EvaluationFact.entity_key/metric_value", "DiagnosisResult.rationale_summary", "PriorityResult.priority_band", "ActionProposal.title"],
+      "report_page_after_mutation_contains_any_mutated_string": false,
+      "content_hash_before": "966dc6db2b3455fe9e7f2601620eff44bb0f21c86e3d6bdc052dda4b37e5ba72",
+      "content_hash_after": "966dc6db2b3455fe9e7f2601620eff44bb0f21c86e3d6bdc052dda4b37e5ba72",
+      "hash_matches_current_stored_html_after_mutation": true,
+      "report_row_count_unchanged": 1,
+      "mutated_data_scope": "synthetic HTRV20260910 validation data only"
+    },
+    "10_japanese_long_table_escape": {
+      "report_id": 9,
+      "content_type_header": "text/html; charset=utf-8",
+      "mojibake_detected": false,
+      "long_table_cell_repetition_confirmed": 60,
+      "script_tags_in_report_dom": 0,
+      "img_tags_in_report_dom": 0,
+      "svg_tags_in_report_dom": 0,
+      "elements_with_onerror_onload_onmouseover": 0,
+      "raw_response_evidence": "&lt;script&gt;alert(&#039;x&#039;)&lt;/script&gt; &lt;img src=x onerror=alert(1)&gt; &quot;&gt;&lt;svg onload=alert(1)&gt; ... onmouseover=&quot;alert(1)&quot; &amp; &#039; &quot; &lt; &gt;",
+      "escaping_verified_at": ["summary", "highlights", "metrics label/value", "table title/columns/cells", "insight title", "evaluation entity_key (also reused by diagnosis/priority sections)"],
+      "console_errors": "3 pre-existing 404s from earlier cross-project navigation checks; zero JS execution errors, zero alert/dialog fired"
+    }
+  },
+  "report_body_prohibitions_section_7": {
+    "checked_on": "report_id 9 (richest content) via DOM query on .html-report and full forbidden-string scan",
+    "forbidden_strings_found": [],
+    "form_tags_in_article": 0,
+    "button_tags_in_article": 0,
+    "anchor_tags_in_article": 0,
+    "meta_refresh_on_page": 0,
+    "outer_navigation_present_and_acceptable": "Back to Analysis / Analysis History links exist outside the .html-report article boundary"
+  },
+  "mysql_byte_hash_results": {
+    "method": "for each report: PHP hash('sha256', DB-refetched rendered_html) AND native MySQL SELECT LOWER(SHA2(rendered_html, 256)), both compared against stored content_hash",
+    "reports_checked": [
+      {"report_id": 3, "label": "ASCII-centric (Job A)", "char_length": 2569, "octet_length": 2645, "stored_hash_matches_php": true, "stored_hash_matches_mysql_sha2": true, "format_valid_lowercase_64hex": true},
+      {"report_id": 9, "label": "Japanese + long table + HTML-escaped (Job H)", "char_length": 3356, "octet_length": 5102, "stored_hash_matches_php": true, "stored_hash_matches_mysql_sha2": true, "format_valid_lowercase_64hex": true},
+      {"report_id": 4, "label": "Free Analysis legacy (Job B)", "char_length": 1969, "octet_length": 1989, "stored_hash_matches_php": true, "stored_hash_matches_mysql_sha2": true, "format_valid_lowercase_64hex": true},
+      {"report_id": 8, "label": "Archived existing report (Job F)", "char_length": 1779, "octet_length": 1821, "stored_hash_matches_php": true, "stored_hash_matches_mysql_sha2": true, "format_valid_lowercase_64hex": true}
+    ],
+    "any_mismatch": false,
+    "stored_html_corrected_or_overwritten": false
+  },
+  "ai_queue_confirmation": {
+    "jobs_count_before": 0,
+    "jobs_count_after": 0,
+    "failed_jobs_count_before": 2,
+    "failed_jobs_count_after": 2,
+    "queue_worker_started": false,
+    "application_log_openai_lines": 0,
+    "application_log_error_exception_critical_lines": 0,
+    "reports_generated_via_real_http_post_count": 7,
+    "openai_call_statement": "No OpenAI call was observed; code and automated tests indicate zero-call behavior, but no independent network-level counter was available."
+  },
+  "issues_found": [],
+  "residual_risks": [
+    "Screenshot PNG files could not be persisted to disk from this session's Browser tool (no save-to-file capability was available, consistent with every prior Product Validation session in this project); visual checks (Japanese rendering, escaped payload display, section layout, badge colors) were performed and observed directly in-session -- including a definitive raw-HTTP-response-body escaping check that is stronger evidence than a screenshot alone -- but are not preserved as separate image files. See validation-20260910-notes.md.",
+    "Synthetic validation data (Projects 35/36/37/38 and 9 AnalysisJobs plus their EvaluationFact/DiagnosisResult/PriorityResult/ActionProposal rows, all HTRV20260910-prefixed, plus 7 Report rows) remains in the local Docker MySQL database, as instructed. It should be cleaned up deliberately before this database is reused as a clean baseline, if desired.",
+    "The unique-constraint race verification (Focus 3 above) is a DB-transaction-level check, not a true concurrent-HTTP-request/InnoDB-lock-contention observation; see unverified_items."
+  ],
+  "product_code_changed": false,
+  "protected_files_touched": false,
+  "migration_applied_to_local_mysql_only": true,
+  "commit_performed": false,
+  "push_performed": false
+}

@@ -1,0 +1,24 @@
+{
+    "case": "case_a_display",
+    "description": "Product Validation Case A — Display: CVR 4.50% vs display baseline 4.90%, Below + Medium. All 5 channels have equal clicks (12,000), total = 60,000. Priority Gap uses the leave-one-out test_baseline_value (2400/48000 = 0.05), not the display baseline.",
+    "template_key": "ad_performance",
+    "trigger_fact": {
+        "entity_key": "Display",
+        "metric_key": "conversion_rate",
+        "direction": "below",
+        "evaluation_level": "medium",
+        "metric_value": 0.045,
+        "test_baseline_value": 0.05,
+        "denominator_value": 12000
+    },
+    "impact_context": {
+        "impact_total": 60000
+    },
+    "expected": {
+        "eligible": true,
+        "priority_band": "low",
+        "min_score": 0.04,
+        "max_score": 0.06,
+        "greater_than": "case_b_display"
+    }
+}

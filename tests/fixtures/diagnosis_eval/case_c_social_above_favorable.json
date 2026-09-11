@@ -1,0 +1,34 @@
+{
+    "case": "C",
+    "description": "Dominant Channel — Social: CVR 8.00% vs baseline ~5.03%, Above + High (favorable — v1 out of Diagnosis scope). Diagnosis/Action must never suggest increasing Social's budget.",
+    "template_key": "ad_performance",
+    "trigger_fact": {
+        "entity_type": "channel",
+        "entity_key": "Social",
+        "metric_key": "conversion_rate",
+        "metric_value": 0.08,
+        "display_baseline_value": 0.05025,
+        "test_baseline_value": 0.04923,
+        "delta_absolute": 0.02975,
+        "delta_percent": 0.5920,
+        "direction": "above",
+        "evaluation_level": "high",
+        "numerator_value": 200,
+        "denominator_value": 2500,
+        "control_numerator_value": 4825,
+        "control_denominator_value": 97500,
+        "z_score": 5.1
+    },
+    "supporting_facts": [
+        {"metric_key": "spend", "value": 50000},
+        {"metric_key": "revenue", "value": 180000},
+        {"metric_key": "impressions", "value": 300000}
+    ],
+    "expected": {
+        "eligible": false,
+        "allowed_categories": [],
+        "forbidden_categories": [],
+        "must_abstain": false,
+        "forbidden_phrases": ["increase budget", "increase Social's budget", "scale Social"]
+    }
+}

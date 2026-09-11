@@ -278,6 +278,20 @@ ReportFlow AI follows these principles:
 
 ---
 
+## Local Development
+
+After pulling code or config changes, restart the queue worker
+(`php artisan queue:restart`, then relaunch `php artisan queue:work` —
+there is no process supervisor auto-restarting it in this project's
+`docker compose` setup yet). A long-running worker process keeps
+already-loaded classes and config in memory and will silently continue
+executing the old code otherwise. See
+`docs/product/ANALYSIS_JOB_MODULE.md` "Operational runbook: restart the
+queue worker after every code/config deploy" for the incident that
+surfaced this (Phase 4-C).
+
+---
+
 ## Development Documentation
 
 Architecture and development rules are documented under:

@@ -3,33 +3,25 @@
 @section('title', 'Data Files - '.$project->name)
 
 @section('actions')
+    <a href="{{ route('projects.analysis-jobs.index', $project) }}" class="btn">Analysis History</a>
     <a href="{{ route('projects.index') }}" class="btn btn-secondary">Back to Projects</a>
 @endsection
 
 @section('content')
+    <x-breadcrumb :items="[['label' => 'Projects', 'href' => route('projects.index')], ['label' => $project->name], ['label' => 'Data Files']]" />
     <p>
         <strong>{{ $project->name }}</strong>
-        <span class="badge {{ $canUpload ? 'badge-active' : 'badge-archived' }}">
-            {{ $project->status->value }}
-        </span>
+        <x-badge :variant="$canUpload ? 'active' : 'archived'" :label="$project->status->value" />
     </p>
 
-    @if ($errors->any())
-        <div class="errors">
-            <ul>
-                @foreach ($errors->all() as $error)
-                    <li>{{ $error }}</li>
-                @endforeach
-            </ul>
-        </div>
-    @endif
+    @include('components.errors')
 
     @if ($canUpload)
-        <form method="POST" action="{{ route('projects.data-files.store', $project) }}" enctype="multipart/form-data">
+        <form id="upload-form" method="POST" action="{{ route('projects.data-files.store', $project) }}" enctype="multipart/form-data">
             @csrf
 
             <div class="field">
-                <label for="file">CSV File</label>
+                <label for="file">CSV File <span class="required-label">Required</span></label>
                 <input type="file" id="file" name="file" accept=".csv">
                 <p class="hint">CSV files only. Maximum 10 MB.</p>
             </div>
@@ -40,32 +32,40 @@
         <p class="hint">Archived projects cannot accept new DataFiles.</p>
     @endif
 
-    <table>
+    @if ($dataFiles->isEmpty())
+        <x-empty-state message="No data files uploaded yet." :action-label="$canUpload ? 'Upload a CSV file' : null" :action-href="$canUpload ? '#upload-form' : null" />
+    @else
+    <div class="table-scroll"><table>
         <thead>
             <tr>
                 <th>Original File Name</th>
                 <th>MIME Type</th>
                 <th>Size</th>
                 <th>Uploaded At</th>
+                <th>Actions</th>
             </tr>
         </thead>
         <tbody>
-            @forelse ($dataFiles as $dataFile)
+            @foreach ($dataFiles as $dataFile)
                 <tr>
                     <td>{{ $dataFile->original_name }}</td>
                     <td>{{ $dataFile->mime_type }}</td>
                     <td>{{ $formattedSizes[$dataFile->data_file_id] }}</td>
                     <td>{{ $dataFile->created_at?->format('Y-m-d H:i') }}</td>
+                    <td>
+                        @if ($canUpload)
+                            <a href="{{ route('projects.data-files.analysis-jobs.create', [$project, $dataFile]) }}" class="btn-link">Analyze</a>
+                        @else
+                            <span class="hint">Unavailable</span>
+                        @endif
+                    </td>
                 </tr>
-            @empty
-                <tr>
-                    <td colspan="4">No data files uploaded yet.</td>
-                </tr>
-            @endforelse
+            @endforeach
         </tbody>
-    </table>
+    </table></div>
 
     <div class="pagination">
         {{ $dataFiles->links() }}
     </div>
+    @endif
 @endsection

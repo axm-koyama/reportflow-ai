@@ -16,6 +16,7 @@ class CreateProjectAction
      * regardless of any status value present in the given attributes.
      *
      * @param  array<string, mixed>  $attributes
+     * @return Project
      */
     public function execute(array $attributes): Project
     {
