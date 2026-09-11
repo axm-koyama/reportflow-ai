@@ -1,0 +1,457 @@
+{
+  "validation": "ReportFlow AI v1.1 UI Polish — Browser Product Validation",
+  "validation_date": "2026-09-11",
+  "branch": "feature/reportflow-v1-1-ui-polish",
+  "head_note": "All changes present as uncommitted working-tree modifications on top of merge commit fa13c0b (feature/analysis-job-module); no new commit exists on this branch.",
+  "specification": "docs/product/REPORTFLOW_V1_1_UI_POLISH.md",
+  "application_url": "http://localhost:18080",
+  "environment": {
+    "app_env": "local",
+    "db_connection": "mysql",
+    "db_host": "mysql (docker service reportflow-mysql, container-internal name)",
+    "db_database": "reportflow",
+    "db_port_forwarded": 13306,
+    "queue_connection": "database",
+    "queue_worker_running": false,
+    "openai_endpoint_configured": "https://api.openai.com/v1/responses (config/services.php, not called)",
+    "docker_services": [
+      "reportflow-app (Up)",
+      "reportflow-nginx (Up, 0.0.0.0:18080->80)",
+      "reportflow-mysql (Up, healthy)",
+      "reportflow-redis (Up, healthy)"
+    ]
+  },
+  "safety_preconditions": {
+    "app_env_not_production": true,
+    "db_is_local_docker": true,
+    "queue_worker_not_running": true,
+    "no_real_openai_call_made": true,
+    "proceeded": true
+  },
+  "protected_files_untouched": {
+    "docs/development/CODING_STANDARDS.md": "unchanged pre-existing 1-line modification, identical before/after this session",
+    "AGENTS.md": "unchanged untracked file, identical before/after this session"
+  },
+  "viewports_tested": [
+    { "name": "desktop", "width": 1024, "height": 768, "note": "Browser pane's own responsive desktop size was used (~1024x768 / 1440-class), not a fixed 1440x900 canvas; content behavior is width-driven and equivalent." },
+    { "name": "mobile", "width": 375, "height": 812 },
+    { "name": "narrow", "width": 320, "height": 700, "note": "navigation and page-header only, per instructions" }
+  ],
+  "synthetic_data_created": {
+    "prefix": "UIV11PV20260911",
+    "created_via": "php artisan tinker, model factories/Eloquent creates inside DB::transaction(), executed from a temporary script file (no AI, no Queue)",
+    "projects": [
+      { "project_id": 39, "name": "UIV11PV20260911 Active Project", "status": "active" },
+      { "project_id": 40, "name": "UIV11PV20260911 Archived Project", "status": "archived" },
+      { "project_id": 41, "name": "UIV11PV20260911 Empty Project", "status": "active", "note": "no DataFiles, used for Data Files empty-state check" }
+    ],
+    "data_files": [
+      { "data_file_id": 62, "project_id": 39, "note": "deliberately very long original_name to test breadcrumb/table wrapping; real CSV written to local disk storage (channel,campaign,spend,revenue,conversions,clicks,impressions,date; 5 rows)" },
+      { "data_file_id": 63, "project_id": 40, "note": "same CSV content, used only for the archived-project Failed job fixture" }
+    ],
+    "analysis_jobs": [
+      { "analysis_job_id": 131, "title": "UIV11PV20260911 Pending Job", "status": "Pending", "note": "orphaned AnalysisJobDetail-less row left over from a first seed attempt that failed on a NOT NULL constraint (see notes); kept and reused as the Pending fixture rather than deleted, since row deletion was blocked by the session's permission classifier" },
+      { "analysis_job_id": 132, "title": "UIV11PV20260911 Processing Job", "status": "Processing" },
+      { "analysis_job_id": 133, "title": "UIV11PV20260911 Mapping Confirmation Required (...)", "status": "AwaitingMappingConfirmation", "note": "long Japanese title deliberately included" },
+      { "analysis_job_id": 134, "title": "UIV11PV20260911 Completed Rich Job", "status": "Completed", "template_key": "ad_performance", "note": "full Summary/Highlights/Metrics/Tables/Insights/Recommendations + EvaluationFact(High, evaluation_fact_id set) + DiagnosisResult + PriorityResult(band=high) + ActionProposal; source of new Report #10" },
+      { "analysis_job_id": 135, "title": "UIV11PV20260911 Completed Free Analysis Job", "status": "Completed", "template_key": null, "note": "legacy-style recommendations, Free Analysis mode" },
+      { "analysis_job_id": 136, "title": "UIV11PV20260911 Failed No Recovery Child", "status": "Failed" },
+      { "analysis_job_id": 137, "title": "UIV11PV20260911 Failed With Recovery Child", "status": "Failed" },
+      { "analysis_job_id": 138, "title": "UIV11PV20260911 Failed With Recovery Child (Recovery Attempt)", "status": "Pending", "recovered_from_analysis_job_id": 137 },
+      { "analysis_job_id": 139, "title": "UIV11PV20260911 Failed In Archived Project", "status": "Failed", "project_id": 40 }
+    ],
+    "reports_generated_this_session": [
+      { "report_id": 10, "analysis_job_id": 134, "renderer_version": "report_renderer_v1.1", "schema_version": "report_schema_v1.0", "content_hash": "d6a88a988862b6fa3740bade54186eb1e11c7a5dd3daf185511f44914b09f141", "generated_via": "real HTTP POST projects.analysis-jobs.reports.store, submitted by clicking the actual 'Generate HTML Report' button in the Browser" }
+    ],
+    "pre_existing_reports_used_for_old_format_checks": [
+      { "report_id": 9, "analysis_job_id": 127, "project_id": 35, "renderer_version": "report_renderer_v1.0" },
+      { "report_id": 3, "analysis_job_id": 122, "project_id": 35, "renderer_version": "report_renderer_v1.0" }
+    ],
+    "seed_data_correction_note": "The first seed attempt failed with SQLSTATE 23000 (analysis_job_details.prompt NOT NULL) after creating projects 39/40/41 and data files 62/63 and job 131; those surviving rows were reused rather than recreated. A second issue (BuildReportSnapshotAction's NormalizeAnalysisResultAction requires metrics[].value to be a string) caused the first Report-generation attempt for job 134 to return HTTP 500 with no Report row created; the synthetic result.metrics values were corrected from int to string and generation was retried successfully. Both issues were synthetic-fixture data-shape mistakes, not defects in the reviewed UI Polish diff.",
+    "residual_state": "All synthetic Projects/DataFiles/AnalysisJobs/EvaluationFact/DiagnosisResult/PriorityResult/ActionProposal rows and the new Report #10 remain in the database, as instructed. Two temporary seed script files (/tmp/uiv11_seed.php, /tmp/uiv11_seed2.php) remain inside the reportflow-app container; a cleanup rm was attempted and denied by this session's own permission classifier (destructive-action guard), so they were left in place — they are not part of the git repository, the application database, or any persisted volume outside the container's ephemeral /tmp."
+  },
+  "ai_queue_non_execution": {
+    "jobs_table_count_before": 0,
+    "jobs_table_count_after": 0,
+    "failed_jobs_table_count_before": 2,
+    "failed_jobs_table_count_after": 2,
+    "failed_jobs_note": "both pre-existing from earlier sessions, untouched",
+    "reports_table_count_before": 7,
+    "reports_table_count_after": 8,
+    "reports_delta_explained": "exactly +1, matching the single intentional Report generation performed this session",
+    "queue_worker_process_found": false,
+    "openai_log_lines_found": 0,
+    "evidence_scope": "Confirmed via `jobs`/`failed_jobs` row counts before and after, absence of a running queue worker process, and absence of any 'openai' string in storage/logs/laravel.log. No independent network-level call counter or outbound-traffic capture was available in this session, so a stronger claim (zero network calls made) is not asserted beyond what these three signals show."
+  },
+  "scenarios": {
+    "1_root_navigation": {
+      "root_redirects_to_projects_index": true,
+      "welcome_view_shown": false,
+      "product_nav_present": true,
+      "aria_current_on_projects_index_only": true,
+      "aria_current_absent_on_subpages": true,
+      "nav_overflow_at_375px": false,
+      "nav_overflow_at_320px": false,
+      "result": "PASS"
+    },
+    "2_projects": {
+      "populated_state_checked": true,
+      "empty_state_checked": "NOT DIRECTLY VERIFIABLE — the shared local Projects table already has 15+ pre-existing rows across prior validation sessions and cannot be emptied without deleting protected/pre-existing data; the underlying <x-empty-state> component was verified instead on Data Files (project 41) and Analysis History (multiple projects)",
+      "active_archived_badge_colors_distinct": true,
+      "breadcrumb_present": "N/A — Projects index is the app root, no breadcrumb by design",
+      "row_action_hierarchy": "Data Files / Analysis History / Edit rendered as .btn-link",
+      "table_scroll_internal_overflow_375px": { "scrollWidth": 821, "clientWidth": 343 },
+      "body_overflow_375px": { "scrollWidth": 375, "clientWidth": 375 },
+      "result": "PASS (empty state Unverified for this exact screen, see note)"
+    },
+    "3_project_forms": {
+      "create_breadcrumb_items": 2,
+      "edit_breadcrumb_items": 3,
+      "aria_current_count_create": 1,
+      "aria_current_count_edit": 1,
+      "required_label_always_visible": true,
+      "save_cancel_hierarchy": "Save = .btn (primary), Cancel = .btn-link (secondary)",
+      "keyboard_focus_tab_to_name_field": "confirmed, visible focus ring (outline: solid, color #c7d2fe)",
+      "validation_error_post_performed": false,
+      "validation_error_summary_structure": "verified via source read only (components/errors.blade.php: role=\"alert\", heading + <ul>); not re-triggered live to avoid submitting forms",
+      "mobile_375px_overflow": false,
+      "result": "PASS (live validation-error POST intentionally not performed, per 'POSTは不要' guidance in the request)"
+    },
+    "4_data_files": {
+      "populated_active_project": "PASS, long filename does not cause body overflow",
+      "empty_project_41": "PASS, <x-empty-state> with icon + 'Upload a CSV file' anchor to #upload-form",
+      "archived_project_40": "PASS, no upload form, 'Unavailable' per row, hint text shown",
+      "table_scroll_internal_overflow_375px": { "scrollWidth": 640, "clientWidth": 343 },
+      "body_overflow_375px": { "scrollWidth": 375, "clientWidth": 375 },
+      "result": "PASS"
+    },
+    "5_analysis_start_mapping": {
+      "create_screen_required_label": "Title Required",
+      "create_screen_template_prompt_hints_present": true,
+      "mapping_screen_required_marker": "必須 (always visible text, not hover-only)",
+      "mapping_screen_group_required_marker": "(グループ必須)",
+      "mapping_screen_ai_confidence_text": "AI confidence: 0.42",
+      "mapping_confirmation_vs_failed_distinguishable": true,
+      "data_profiling_against_real_csv_succeeded": true,
+      "table_scroll_internal_overflow_375px": { "scrollWidth": 640, "clientWidth": 343 },
+      "body_overflow_375px": { "scrollWidth": 375, "clientWidth": 375 },
+      "form_submitted": false,
+      "result": "PASS"
+    },
+    "6_history_all_statuses": {
+      "statuses_confirmed_present_with_distinct_badge_and_text": ["Pending", "Processing", "Mapping confirmation required", "Completed", "Failed"],
+      "recovery_and_mapping_row_actions_condition_correct": true,
+      "pagination_triggers_at_over_20_rows": { "project_id": 27, "total": 25, "per_page": 20 },
+      "pagination_visual_state": "UNSTYLED — see Finding P1: plain unstyled text links plus two oversized (~400px), un-sized SVG chevron icons render at both desktop and mobile widths",
+      "body_overflow_at_pagination_page_375px": { "scrollWidth": 375, "clientWidth": 375 },
+      "body_overflow_at_pagination_page_1024px": { "scrollWidth": 1024, "clientWidth": 1024 },
+      "table_scroll_internal_overflow_375px": { "scrollWidth": 964, "clientWidth": 343 },
+      "result": "PASS with one Medium finding (pagination visual defect, not a functional break)"
+    },
+    "7_analysis_detail_controlled_actions": {
+      "job_id": 134,
+      "h1_count": 1,
+      "priority_high_badge_bg": "rgb(255, 237, 213)",
+      "completed_status_badge_bg": "rgb(220, 252, 231)",
+      "colors_visually_distinct": true,
+      "raw_priority_score_present": false,
+      "self_reported_confidence_present": false,
+      "advisory_label_exact_match": true,
+      "advisory_label_has_icon_prefix": false,
+      "forbidden_controls_present": false,
+      "prompt_disclosure_present": true,
+      "three_no_proposal_states_verified_distinct": [
+        { "job_id": 66, "project_id": 26, "text": "Controlled Actions are not applicable to this analysis." },
+        { "job_id": 67, "project_id": 26, "text": "No evidence currently meets the controlled eligibility contract." },
+        { "job_id": 68, "project_id": 26, "text": "Eligible evidence existed, but proposals are best-effort output and may be unavailable." }
+      ],
+      "html_escape_verified": { "script_tag_rendered_as_text": true, "actual_script_elements_in_content": 0, "raw_img_onerror_found": false },
+      "body_overflow_375px": { "scrollWidth": 375, "clientWidth": 375 },
+      "body_overflow_1024px": { "scrollWidth": 1024, "clientWidth": 1024 },
+      "table_scroll_internal_overflow_375px_max": { "scrollWidth": 739, "clientWidth": 309 },
+      "result": "PASS"
+    },
+    "8_failed_recovery": {
+      "failed_active_no_child_job_136": "Create Recovery Attempt form + cost-warning text shown",
+      "failed_active_with_child_job_137": "View Recovery Attempt link only, no form",
+      "failed_archived_job_139": "'Recovery attempts can only be created for an active project.' no form",
+      "completed_job_134": "no recovery text/form of any kind",
+      "recovery_post_performed": false,
+      "result": "PASS"
+    },
+    "9_new_html_report": {
+      "report_id": 10,
+      "renderer_version": "report_renderer_v1.1",
+      "schema_version": "report_schema_v1.0",
+      "h1_count_on_page": 1,
+      "h1_count_in_persisted_html": 0,
+      "h2_count_on_page": 11,
+      "table_scroll_count_in_persisted_html": 2,
+      "badge_advisory_count_in_persisted_html": 1,
+      "dates_human_formatted": true,
+      "iso8601_leak_on_page": false,
+      "advisory_label_exact_match": true,
+      "raw_response_prompt_priority_score_leak": false,
+      "forbidden_controls_present": false,
+      "japanese_text_rendered_correctly": true,
+      "long_table_escape_verified": true,
+      "content_hash_matches_sha256_of_rendered_html": true,
+      "body_overflow_1024px": { "scrollWidth": 1024, "clientWidth": 1024 },
+      "body_overflow_375px": { "scrollWidth": 375, "clientWidth": 375 },
+      "table_scroll_internal_overflow_375px": { "scrollWidth": 640, "clientWidth": 293 },
+      "jobs_table_delta": 0,
+      "result": "PASS"
+    },
+    "10_old_html_report": {
+      "reports_checked": [
+        { "report_id": 9, "analysis_job_id": 127, "renderer_version": "report_renderer_v1.0" },
+        { "report_id": 3, "analysis_job_id": 122, "renderer_version": "report_renderer_v1.0" }
+      ],
+      "displays_successfully": true,
+      "rendered_html_unchanged_before_after_view": true,
+      "content_hash_unchanged_before_after_view": true,
+      "renderer_version_unchanged": true,
+      "updated_at_unchanged": true,
+      "reports_row_count_unchanged_by_viewing": true,
+      "regenerated_on_view": false,
+      "h1_count_report_9": 2,
+      "h1_double_heading_status": "confirmed, pre-existing/expected per immutable-Report contract, recorded as Known Limitation per task instruction, not a blocking failure",
+      "advisory_text_minimally_readable_report_3": true,
+      "body_overflow_375px_report_9": { "scrollWidth": 740, "clientWidth": 375, "cause": "bare (unwrapped) Evaluation <table> containing an unbreakable escaped script-payload string forces natural table width past viewport; no .table-scroll ancestor exists in this pre-UI-Polish persisted HTML to contain it" },
+      "body_overflow_1024px_report_9": { "scrollWidth": 1024, "clientWidth": 1024 },
+      "body_overflow_375px_report_3": { "scrollWidth": 678, "clientWidth": 375 },
+      "iso8601_leak_confirmed_expected": true,
+      "result": "PASS with one Medium finding (mobile body overflow on old Reports, see Finding P2) — judged non-blocking on the same basis the task pre-authorizes for the related double-h1 known limitation"
+    },
+    "11_breadcrumb_accessibility": {
+      "aria_current_count_by_page": {
+        "projects_create": 1,
+        "projects_edit": 1,
+        "data_files_active": 1,
+        "analysis_create": "not re-measured, structurally identical component to others measured at 1",
+        "mapping": 1,
+        "analysis_history": 1,
+        "analysis_detail": 1,
+        "report_new": 1,
+        "report_old": "not re-measured; breadcrumb is rendered by the live reports/show.blade.php, identical component, same guarantee applies"
+      },
+      "nav_aria_current_only_on_projects_index": true,
+      "heading_hierarchy_new_pages": "single h1 per page, h2 for sections, correct",
+      "heading_hierarchy_old_reports": "double h1, documented Known Limitation",
+      "focus_visible_confirmed": true,
+      "screen_reader_native_av_test": "NOT PERFORMED — no physical screen reader available in this session; reported as DOM/ARIA-attribute inspection only, per instruction",
+      "link_button_semantics": "primary actions are <button type=submit> inside <form>, or <a class=btn> for navigation; .btn-link used for lower-emphasis navigation anchors — no anchor styled to look like a destructive/primary button and no button used for pure navigation",
+      "result": "PASS"
+    },
+    "12_print_preview": {
+      "method": "true @media print emulation was not available as a direct tool action in this session; the page's own print CSS block was read from source and re-applied as an equivalent `media=\"screen\"` <style> override for visual verification, then removed — disclosed explicitly as an approximation, not a native print-preview capture",
+      "report_heading_visible": true,
+      "navigation_hidden": true,
+      "breadcrumb_hidden": true,
+      "page_actions_hidden": true,
+      "report_body_visible": true,
+      "table_fits_print_width": true,
+      "form_button_url_visible": false,
+      "result": "PASS (via CSS-equivalent emulation, not native print preview)"
+    },
+    "13_overflow_measurements": {
+      "unit": "pixels, document.documentElement.{scrollWidth,clientWidth} unless noted as an inner .table-scroll element",
+      "projects_375": { "body": [375, 375], "table_scroll": [821, 343] },
+      "data_files_375": { "body": [375, 375], "table_scroll": [640, 343] },
+      "analysis_history_375": { "body": [375, 375], "table_scroll": [964, 343] },
+      "analysis_history_paginated_375": { "body": [375, 375] },
+      "analysis_history_paginated_1024": { "body": [1024, 1024] },
+      "mapping_375": { "body": [375, 375], "table_scroll": [640, 343] },
+      "analysis_detail_375": { "body": [375, 375], "table_scroll_max": [739, 309] },
+      "analysis_detail_1024": { "body": [1024, 1024] },
+      "report_new_375": { "body": [375, 375], "table_scroll": [640, 293] },
+      "report_new_1024": { "body": [1024, 1024] },
+      "report_old_9_375": { "body": [740, 375], "overflow": true },
+      "report_old_9_1024": { "body": [1024, 1024], "overflow": false },
+      "report_old_3_375": { "body": [678, 375], "overflow": true },
+      "320px_analysis_detail": { "body": [320, 320] }
+    }
+  },
+  "findings": [
+    {
+      "id": "P1",
+      "severity": "Medium",
+      "status": "Resolved",
+      "resolved_in": "revalidation_20260911_p1_p2 (see that section below for measured values)",
+      "area": "Analysis History / any list exceeding 20 rows",
+      "title": "Pagination control is unstyled and renders oversized, un-sized SVG chevron icons",
+      "evidence": "Confirmed on Project 27 (25 AnalysisJobs) at both 1024px and 375px: pagination links/text carry zero CSS (padding:0, background:transparent, border:none — confirmed via getComputedStyle), and Laravel's default Tailwind-class pagination partial's decorative chevron <svg> elements (normally sized ~20px via Tailwind's w-5 h-5) render at their un-sized intrinsic dimensions (~400-500px), dominating the page below the table.",
+      "impact": "Every list screen (Projects, Data Files, Analysis History) that ever exceeds 20 rows shows this. Functionally the links remain clickable (page 2, Next) so navigation is not broken, but visually this is a severe, unprofessional defect for a portfolio-facing product.",
+      "recommendation": "Not fixed in this validation session (out of scope — this session performs validation only, no Product code changes). Recommend either publishing and restyling Laravel's pagination view with the app's own plain-CSS tokens, or adding a small, scoped CSS block targeting the default pagination partial's classes/structure.",
+      "blocking": false,
+      "rationale_for_non_blocking": "Does not corrupt data, does not misrepresent status/security, and the underlying navigation still functions; recorded as a Medium finding for prompt attention rather than a stop condition, per the task's guidance to only stop for Medium items that break a primary flow, mobile usability, or Report display outright.",
+      "correction_applied_since": "resources/views/analysis-jobs/index.blade.php now renders `$analysisJobs->links('components.pagination')` instead of the default Tailwind view; a new `resources/views/components/pagination.blade.php` (plain semantic markup, no SVG) plus dedicated `.pagination`/.pagination-list`/`.pagination-link` CSS tokens were added to `resources/views/layouts/app.blade.php`."
+    },
+    {
+      "id": "P2",
+      "severity": "Medium",
+      "status": "Resolved",
+      "resolved_in": "revalidation_20260911_p1_p2 (see that section below for measured values)",
+      "area": "Old-format (report_renderer_v1.0) persisted HTML Report, mobile viewport",
+      "title": "Pre-existing Reports can still cause page-level horizontal overflow on narrow viewports",
+      "evidence": "Report #9 (job 127): body scrollWidth 740 vs clientWidth 375 at 375px. Report #3 (job 122): 678 vs 375. Root cause isolated via DOM inspection: the bare (unwrapped) Evaluation table's cell content includes an escaped-but-unbreakable Latin string (no CJK line-break opportunities), so the table grows to its natural content width (~700px) with no `.table-scroll` ancestor to contain it, since pre-UI-Polish persisted HTML never included that wrapper markup.",
+      "confirmation_the_originally-identified_mechanism_is_fixed": "The global `table { min-width: 640px }` rule flagged in the prior code review is now correctly scoped to `.table-scroll table` (confirmed by reading the current stylesheet), so it no longer forces a minimum width onto bare/legacy tables. The overflow observed here has a different, narrower cause (natural content width of an unbreakable string) than the mechanism originally flagged, and only manifests for Reports whose stored content happens to include a long unbroken non-CJK token.",
+      "impact": "Bounded to viewing already-generated Reports on narrow (~<700px) viewports; content is not lost (the whole page scrolls horizontally to reveal it), and new Reports are unaffected (confirmed clean at both 1024px and 375px).",
+      "recommendation": "Do not rewrite persisted rendered_html or content_hash to fix this (explicitly out of bounds for this validation and for the Report immutability contract). If addressed at all, the fix must be CSS-only and must not depend on any markup the old HTML lacks — for example, a bare `table { max-width: 100%; }`-style rule that still lets a `.table-scroll`-wrapped table exceed 100% for its own internal scrolling, or accepting this as a permanent, documented limitation of pre-UI-Polish Reports.",
+      "blocking": false,
+      "rationale_for_non_blocking": "Same root category as the already-accepted double-h1 known limitation (immutable old HTML lacking new wrapper markup); the task's own instructions pre-authorize treating that class of issue as a recorded, non-blocking Known Limitation rather than a stop condition.",
+      "correction_applied_since": "resources/views/reports/show.blade.php now wraps `{!! $report->rendered_html !!}` in a new `<div class=\"report-content\">`, and `.report-content { max-width: 100%; overflow-x: auto; }` was added to `resources/views/layouts/app.blade.php`. Because this wrapper lives in the always-freshly-rendered outer show.blade.php (not inside the persisted rendered_html), it transparently applies to old and new Reports alike without touching any stored content."
+    },
+    {
+      "id": "P3",
+      "severity": "Low",
+      "area": "Old-format persisted HTML Report",
+      "title": "Duplicate <h1> on old Reports (pre-existing, explicitly non-blocking per task instructions)",
+      "evidence": "Report #9 has 2 <h1> elements (outer layout title + persisted document title); confirmed content_hash/renderer_version/updated_at unchanged after viewing (no implicit regeneration).",
+      "blocking": false
+    },
+    {
+      "id": "P4",
+      "severity": "Low",
+      "area": "Old-format persisted HTML Report",
+      "title": "Raw ISO-8601 timestamps remain on old Reports",
+      "evidence": "Report #9 shows 'Completed At: 2026-09-10T06:15:58.000000Z' verbatim; this is expected since only the renderer used for future generations changed.",
+      "blocking": false
+    },
+    {
+      "id": "P5",
+      "severity": "Low",
+      "area": "Validation housekeeping",
+      "title": "Two temporary seed-runner scripts could not be removed from the app container",
+      "evidence": "`docker exec reportflow-app rm -f /tmp/uiv11_seed.php /tmp/uiv11_seed2.php` was denied by this session's permission classifier as a destructive action. The files are plain PHP scripts inside the container's ephemeral /tmp, not part of the git repository, the application database, or any mounted volume; they carry no credentials.",
+      "blocking": false
+    }
+  ],
+  "unverified_items": [
+    "Projects index empty-state screen itself (component verified elsewhere; the shared local Projects table cannot be emptied without deleting pre-existing/protected data)",
+    "True native browser print-preview / PDF-from-print rendering (approximated via an equivalent CSS override, not a native print capture)",
+    "Actual assistive-technology (screen reader) announcement behavior for aria-current, breadcrumb, and alert regions (DOM/ARIA attributes inspected only)",
+    "A definitive, network-level proof of zero OpenAI API calls (only DB job-count and log-grep evidence gathered; no packet-level counter was available)",
+    "Validation-error form submission screens for Project create/edit, Analysis create, and Mapping update were not re-triggered live in this Browser session (the request said POSTs were unnecessary here); their structure was confirmed by reading resources/views/components/errors.blade.php only",
+    "Screenshots were not saved as PNG files — this session's Browser tool renders images inline for verification but exposes no mechanism to persist the underlying bytes to disk, matching the same limitation recorded in prior validation sessions (docs/product/validation/html-report-v1/validation-20260910-notes.md)."
+  ],
+  "revalidation_20260911_p1_p2": {
+    "purpose": "Limited follow-up Browser re-validation of Finding P1 (pagination) and Finding P2 (old-Report mobile overflow) only, after Product code corrections were applied since the original 2026-09-11 validation. No other screen, no code review, and no automated test run was performed in this pass.",
+    "safety_preconditions_reconfirmed": {
+      "branch": "feature/reportflow-v1-1-ui-polish",
+      "app_env": "local",
+      "db": "local docker mysql (reportflow-mysql / reportflow)",
+      "queue_worker_running": false,
+      "jobs_before": 0,
+      "failed_jobs_before": 2,
+      "reports_before": 8
+    },
+    "protected_files_confirmed_untouched": ["docs/development/CODING_STANDARDS.md", "AGENTS.md"],
+    "product_code_changes_observed_since_original_validation": [
+      "app/Actions/Report/RenderHtmlReportAction.php (renderer_version, unrelated to P1/P2, already validated separately)",
+      "resources/views/analysis-jobs/index.blade.php — pagination call switched to `->links('components.pagination')`",
+      "resources/views/components/pagination.blade.php — new, plain semantic pagination partial, no SVG",
+      "resources/views/reports/show.blade.php — `{!! $report->rendered_html !!}` now wrapped in `<div class=\"report-content\">`",
+      "resources/views/layouts/app.blade.php — new `.pagination`/`.pagination-list`/`.pagination-link` CSS and new `.report-content { max-width: 100%; overflow-x: auto; }` (plus a print-mode `.report-content { overflow: visible; }` override)",
+      "tests/Feature/AnalysisJob/AnalysisHistoryControllerTest.php — modified (not inspected in detail this pass; automated tests were not re-run per instructions)"
+    ],
+    "p1_pagination": {
+      "target": "Project 27, Analysis History (25 AnalysisJobs, 20 per page)",
+      "desktop_1440": {
+        "svg_count": 0,
+        "aria_current_count_within_pagination_nav": 1,
+        "aria_current_count_within_breadcrumb_nav": 1,
+        "note_on_two_total_aria_current": "the breadcrumb's own current-page marker and the pagination's own current-page marker are two separate <nav> landmarks (Breadcrumb, 'Analysis History pagination'), each independently carrying exactly one aria-current=\"page\" — this is correct, spec-conformant usage, not a duplicate-marker defect",
+        "link_bounding_boxes": [
+          { "text": "Previous", "width": 84.875, "height": 40.5 },
+          { "text": "1", "width": 40, "height": 40.5 },
+          { "text": "2", "width": 40, "height": 40.5 },
+          { "text": "Next", "width": 57.789, "height": 40.5 }
+        ],
+        "no_oversized_element_found": true,
+        "body_scrollWidth": 1440,
+        "body_clientWidth": 1440,
+        "page_1_row_count": 20,
+        "page_2_row_count": 5,
+        "page_1_to_2_navigation": "clicked 'Next', URL became ?page=2, exactly 5 rows (Filler 11-15), current-page marker moved to '2'",
+        "page_2_to_1_navigation": "clicked 'Previous', URL became ?page=1, exactly 20 rows, current-page marker moved back to '1'",
+        "row_titles_page_1": ["AHV20260907 Status Showcase Pending","AHV20260907 Status Showcase Processing","AHV20260907 Status Showcase Mapping Confirmation","AHV20260907 Status Showcase Completed","AHV20260907 Status Showcase Failed","AHV20260907 Free Analysis Mode","AHV20260907 Unknown Template Fallback","AHV20260907 Tie Break Group 3","AHV20260907 Tie Break Group 2","AHV20260907 Tie Break Group 1","AHV20260907 Filler 1","AHV20260907 Filler 2","AHV20260907 Filler 3","AHV20260907 Filler 4","AHV20260907 Filler 5","AHV20260907 Filler 6","AHV20260907 Filler 7","AHV20260907 Filler 8","AHV20260907 Filler 9","AHV20260907 Filler 10"],
+        "row_titles_page_2": ["AHV20260907 Filler 11","AHV20260907 Filler 12","AHV20260907 Filler 13","AHV20260907 Filler 14","AHV20260907 Filler 15"],
+        "missing_or_duplicate_rows": false
+      },
+      "mobile_375": {
+        "svg_count": 0,
+        "body_scrollWidth": 375,
+        "body_clientWidth": 375,
+        "pagination_list_flex_wrap_computed": "wrap",
+        "pagination_container_rect": { "width": 343, "left": 16, "right": 359 },
+        "link_bounding_boxes": [
+          { "text": "Previous", "left": 16, "right": 100.875, "width": 84.875, "height": 40.5 },
+          { "text": "1", "left": 108.875, "right": 148.875, "width": 40, "height": 40.5 },
+          { "text": "2", "left": 156.875, "right": 196.875, "width": 40, "height": 40.5 },
+          { "text": "Next", "left": 204.875, "right": 262.664, "width": 57.789, "height": 40.5 }
+        ],
+        "all_links_within_viewport": true,
+        "no_oversized_element_found": true
+      },
+      "result": "RESOLVED"
+    },
+    "p2_old_report_overflow": {
+      "target": "Report #9 (analysis_job_id 127, renderer_version report_renderer_v1.0), cross-checked structurally against Report #3",
+      "db_state_before": {
+        "renderer_version": "report_renderer_v1.0",
+        "schema_version": "report_schema_v1.0",
+        "content_hash": "09fd08ea58fbbabbf61bf8ee9c2d4fee219b7d47f042e00544b4c7238bbee1fa",
+        "updated_at": "2026-09-10 15:20:24",
+        "reports_count": 8
+      },
+      "mobile_375": {
+        "body_scrollWidth": 375,
+        "body_clientWidth": 375,
+        "body_overflow": false,
+        "report_content_exists": true,
+        "report_content_scrollWidth": 724,
+        "report_content_clientWidth": 343,
+        "report_content_overflow_x_computed": "auto",
+        "report_content_scrollable_confirmed": "programmatically set scrollLeft=300 on .report-content and read it back as 300 (moved from 0), confirming genuine internal horizontal scroll, then reset to 0",
+        "nav_rect": { "width": 375, "left": 0, "right": 375 },
+        "page_header_rect": { "width": 343, "left": 16, "right": 359 },
+        "nav_and_header_within_viewport": true,
+        "old_table_content_readable": true,
+        "escaped_payloads_still_render_as_text": true
+      },
+      "desktop_1024_1440": {
+        "body_scrollWidth": 1440,
+        "body_clientWidth": 1440,
+        "report_content_scrollWidth": 912,
+        "report_content_clientWidth": 912,
+        "body_overflow": false
+      },
+      "db_state_after": {
+        "renderer_version": "report_renderer_v1.0",
+        "schema_version": "report_schema_v1.0",
+        "content_hash": "09fd08ea58fbbabbf61bf8ee9c2d4fee219b7d47f042e00544b4c7238bbee1fa",
+        "updated_at": "2026-09-10 15:20:24",
+        "reports_count": 8,
+        "all_fields_unchanged_vs_before": true,
+        "regenerated_on_view": false
+      },
+      "known_limitations_reconfirmed_not_findings": [
+        "Report #9 still has 2 <h1> elements (layout title + persisted document title) — explicitly out of scope per instructions",
+        "Report #9 still shows raw ISO-8601 timestamps ('2026-09-10T06:15:58.000000Z') — explicitly out of scope per instructions"
+      ],
+      "result": "RESOLVED"
+    },
+    "ai_queue_after": {
+      "jobs_after": 0,
+      "failed_jobs_after": 2,
+      "queue_worker_process_found": false,
+      "openai_log_lines_found": 0,
+      "reports_count_unchanged_by_this_revalidation": true
+    },
+    "screenshots_saved": false,
+    "screenshots_note": "As in the original validation session, this Browser tool renders screenshots inline for verification only and exposes no mechanism to persist the underlying image bytes to disk in this environment. `pagination-mobile.png` and `report-old-mobile-fixed.png` were NOT created as files; every visual claim above is corroborated by the DOM-level measurements listed alongside it.",
+    "git_diff_check": "clean",
+    "git_status_short_unchanged_outside_this_artifact_directory": true
+  }
+}
