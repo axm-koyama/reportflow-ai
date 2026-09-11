@@ -16,23 +16,26 @@
 @section('content')
     @php($detail = $analysisJob->analysisJobDetail)
     @php($templateName = $analysisJob->template_key ? (config('analysis_templates.'.$analysisJob->template_key.'.name') ?? $analysisJob->template_key) : null)
+    <x-breadcrumb :items="[['label' => 'Projects', 'href' => route('projects.index')], ['label' => $project->name, 'href' => route('projects.analysis-jobs.index', $project)], ['label' => $analysisJob->title]]" />
 
     <dl class="metadata card">
         <dt>Data File</dt><dd>{{ $analysisJob->dataFile->original_name }}</dd>
         @if ($templateName)
             <dt>使用テンプレート</dt><dd>{{ $templateName }}</dd>
         @endif
-        <dt>Prompt</dt><dd>{{ $detail?->prompt ?: '(なし)' }}</dd>
-        <dt>Status</dt><dd><span class="badge {{ $analysisJob->status->badgeClass() }}">{{ $analysisJob->status->label() }}</span></dd>
+        <dt>Status</dt><dd><x-badge :variant="str_replace('badge-', '', $analysisJob->status->badgeClass())" :label="$analysisJob->status->label()" /></dd>
         <dt>Created At</dt><dd>{{ $analysisJob->created_at?->format('Y-m-d H:i:s') ?? '-' }}</dd>
         <dt>Started At</dt><dd>{{ $detail?->started_at?->format('Y-m-d H:i:s') ?? '-' }}</dd>
         <dt>Completed At</dt><dd>{{ $detail?->completed_at?->format('Y-m-d H:i:s') ?? '-' }}</dd>
     </dl>
+    @if ($detail?->prompt)
+        <details class="card"><summary>Prompt</summary><p>{{ $detail->prompt }}</p></details>
+    @endif
 
     @if ($analysisJob->recoveredFrom)
         <section class="card">
             <p>
-                <a href="{{ route('projects.analysis-jobs.show', [$project, $analysisJob->recoveredFrom]) }}">
+                <a href="{{ route('projects.analysis-jobs.show', [$project, $analysisJob->recoveredFrom]) }}" class="btn-link">
                     Recovered from AnalysisJob #{{ $analysisJob->recovered_from_analysis_job_id }}
                 </a>
             </p>
@@ -42,7 +45,7 @@
     @if ($templateName && $detail?->column_mapping)
         <section class="card">
             <h2>使用した列</h2>
-            <table>
+            <div class="table-scroll"><table>
                 <thead><tr><th>項目</th><th>CSV列</th><th>状態</th><th>確信度</th></tr></thead>
                 <tbody>
                     @foreach ($detail->column_mapping as $field => $mapping)
@@ -54,7 +57,7 @@
                         </tr>
                     @endforeach
                 </tbody>
-            </table>
+            </table></div>
         </section>
     @endif
 
@@ -72,7 +75,7 @@
         <div class="alert-error"><strong>Analysis failed:</strong> {{ $detail?->error_message }}</div>
         <section class="card">
             @if ($analysisJob->recoveryAttempt)
-                <a href="{{ route('projects.analysis-jobs.show', [$project, $analysisJob->recoveryAttempt]) }}">View Recovery Attempt</a>
+                <a href="{{ route('projects.analysis-jobs.show', [$project, $analysisJob->recoveryAttempt]) }}" class="btn-link">View Recovery Attempt</a>
             @elseif ($project->status === \App\Enums\ProjectStatus::Active)
                 <p>Recovery creates a new AnalysisJob attempt. This failed attempt remains unchanged.</p>
                 <p class="hint">The new attempt may make new AI calls and incur additional cost.</p>
@@ -94,7 +97,7 @@
         <section class="card">
             <h2>HTML Report</h2>
             @if ($analysisJob->report)
-                <a href="{{ route('projects.reports.show', [$project, $analysisJob->report]) }}" class="btn">View HTML Report</a>
+                <a href="{{ route('projects.reports.show', [$project, $analysisJob->report]) }}" class="btn-link">View HTML Report</a>
             @elseif ($project->status === \App\Enums\ProjectStatus::Active)
                 <form method="POST" action="{{ route('projects.analysis-jobs.reports.store', [$project, $analysisJob]) }}">
                     @csrf
@@ -112,23 +115,23 @@
         </section>
         <section class="card">
             <h2>Metrics</h2>
-            <table>
+            <div class="table-scroll"><table>
                 <thead><tr><th>Label</th><th>Value</th><th>Unit</th><th>Change</th></tr></thead>
                 <tbody>
                     @forelse ($result['metrics'] ?? [] as $metric)
                         <tr><td>{{ $metric['label'] }}</td><td>{{ $metric['value'] }}</td><td>{{ $metric['unit'] ?? '-' }}</td><td>{{ $metric['change'] ?? '-' }}</td></tr>
                     @empty<tr><td colspan="4">None</td></tr>@endforelse
                 </tbody>
-            </table>
+            </table></div>
         </section>
         <section class="card">
             <h2>Tables</h2>
             @forelse ($result['tables'] ?? [] as $resultTable)
                 <h3>{{ $resultTable['title'] }}</h3>
-                <table>
+                <div class="table-scroll"><table>
                     <thead><tr>@foreach ($resultTable['columns'] as $column)<th>{{ $column }}</th>@endforeach</tr></thead>
                     <tbody>@foreach ($resultTable['rows'] as $row)<tr>@foreach ($row as $cell)<td>{{ $cell }}</td>@endforeach</tr>@endforeach</tbody>
-                </table>
+                </table></div>
             @empty<p>None</p>@endforelse
         </section>
         <section class="card">
@@ -163,7 +166,7 @@
                  points), per EVALUATION_ENGINE.md "Rate Scale". --}}
             <section class="card">
                 <h2>Evaluation</h2>
-                <table>
+                <div class="table-scroll"><table>
                     <thead>
                         <tr>
                             <th>Entity</th>
@@ -185,7 +188,7 @@
                                 <td>{{ $fact->display_baseline_value !== null ? number_format($fact->display_baseline_value * 100, 2).'%' : '-' }}</td>
                                 <td>{{ $fact->delta_absolute !== null ? ($fact->delta_absolute >= 0 ? '+' : '').number_format($fact->delta_absolute * 100, 2).'pp' : '-' }}</td>
                                 <td>{{ $fact->direction ? ucfirst($fact->direction) : '-' }}</td>
-                                <td><span class="badge badge-{{ $fact->evaluation_level }}">{{ $fact->evaluation_level === 'insufficient_data' ? 'Insufficient data' : ucfirst($fact->evaluation_level) }}</span></td>
+                                <td><x-badge :variant="$fact->evaluation_level" :label="$fact->evaluation_level === 'insufficient_data' ? 'Insufficient data' : ucfirst($fact->evaluation_level)" /></td>
                                 {{-- Phase 4-C: Deterministic Priority Layer. See docs/product/PRIORITY_ENGINE.md.
                                      Priority is a distinct axis from Evaluation above — "確認優先度" (never
                                      "優先度" alone, to avoid reading as an execution priority; see
@@ -208,7 +211,7 @@
                                     @if (! ($priorityEligibility[$fact->evaluation_fact_id] ?? false))
                                         -
                                     @elseif ($fact->priorityResult)
-                                        <span class="badge badge-{{ $fact->priorityResult->priority_band }}">{{ ucfirst($fact->priorityResult->priority_band) }}</span>
+                                        <x-badge :variant="$fact->priorityResult->priority_band" :label="ucfirst($fact->priorityResult->priority_band)" />
                                         <div class="hint">
                                             流量影響 {{ number_format($fact->priorityResult->impact_score * 100, 1) }}% /
                                             比較対照との差 {{ number_format($fact->priorityResult->gap_raw_value * 100, 2) }}pp
@@ -220,7 +223,7 @@
                             </tr>
                         @endforeach
                     </tbody>
-                </table>
+                </table></div>
             </section>
 
             {{-- Phase 4-B: Controlled Diagnosis. See docs/product/DIAGNOSIS_ENGINE.md.
@@ -267,7 +270,7 @@
             @forelse ($controlledActionViewData['proposals'] as $proposal)
                 <article>
                     <h3>{{ $proposal->title }}</h3>
-                    <p><span class="badge">Advisory only — not executed</span></p>
+                    <p><x-badge variant="advisory" label="Advisory only — not executed" /></p>
                     <dl class="metadata">
                         <dt>Catalog</dt>
                         <dd>{{ config("action_catalog.{$proposal->catalog_key}.label") ?? $proposal->catalog_key }}</dd>
@@ -275,7 +278,7 @@
                         <dd>{{ $proposal->evaluationFact->entity_key }} / {{ ucfirst(str_replace('_', ' ', $proposal->evaluationFact->metric_key)) }}</dd>
                         <dt>確認優先度</dt>
                         <dd>
-                            <span class="badge badge-{{ $proposal->priorityResult->priority_band }}">{{ ucfirst($proposal->priorityResult->priority_band) }}</span>
+                            <x-badge :variant="$proposal->priorityResult->priority_band" :label="ucfirst($proposal->priorityResult->priority_band)" />
                             <span class="hint">
                                 流量影響 {{ number_format($proposal->priorityResult->impact_score * 100, 1) }}% /
                                 比較対照との差 {{ number_format($proposal->priorityResult->gap_raw_value * 100, 2) }}pp

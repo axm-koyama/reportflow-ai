@@ -8,16 +8,14 @@
 @endsection
 
 @section('content')
+    <x-breadcrumb :items="[['label' => 'Projects', 'href' => route('projects.index')], ['label' => $project->name], ['label' => 'Analysis History']]" />
     <p><strong>{{ $project->name }}</strong></p>
 
     @if ($analysisJobs->isEmpty())
-        <div class="card">
-            <p>No analyses have been created for this project yet.</p>
-            <a href="{{ route('projects.data-files.index', $project) }}">Go to Data Files</a>
-        </div>
+        <x-empty-state message="No analyses have been created for this project yet." action-label="Go to Data Files" :action-href="route('projects.data-files.index', $project)" />
     @else
         <p class="hint">Open an analysis to view live status updates.</p>
-        <table>
+        <div class="table-scroll"><table>
             <thead>
                 <tr>
                     <th>Analysis</th>
@@ -38,20 +36,20 @@
                         <td>{{ $analysisJob->title }}</td>
                         <td>{{ $analysisJob->dataFile->original_name }}</td>
                         <td>{{ $templateName }}</td>
-                        <td><span class="badge {{ $analysisJob->status->badgeClass() }}">{{ $analysisJob->status->label() }}</span></td>
+                        <td><x-badge :variant="str_replace('badge-', '', $analysisJob->status->badgeClass())" :label="$analysisJob->status->label()" /></td>
                         <td>{{ $analysisJob->created_at?->format('Y-m-d H:i') }}</td>
                         <td>{{ $analysisJob->updated_at?->format('Y-m-d H:i') }}</td>
                         <td>
-                            <a href="{{ route('projects.analysis-jobs.show', [$project, $analysisJob]) }}">View Details</a>
+                            <a href="{{ route('projects.analysis-jobs.show', [$project, $analysisJob]) }}" class="btn-link">View Details</a>
                             @if ($analysisJob->recoveredFrom)
-                                <a href="{{ route('projects.analysis-jobs.show', [$project, $analysisJob->recoveredFrom]) }}">Recovered from #{{ $analysisJob->recovered_from_analysis_job_id }}</a>
+                                <a href="{{ route('projects.analysis-jobs.show', [$project, $analysisJob->recoveredFrom]) }}" class="btn-link">Recovered from #{{ $analysisJob->recovered_from_analysis_job_id }}</a>
                             @endif
                             @if ($analysisJob->status === \App\Enums\AnalysisJobStatus::AwaitingMappingConfirmation)
-                                <a href="{{ route('projects.analysis-jobs.mapping.edit', [$project, $analysisJob]) }}">Review Mapping</a>
+                                <a href="{{ route('projects.analysis-jobs.mapping.edit', [$project, $analysisJob]) }}" class="btn-link">Review Mapping</a>
                             @endif
                             @if ($analysisJob->status === \App\Enums\AnalysisJobStatus::Failed)
                                 @if ($analysisJob->recoveryAttempt)
-                                    <a href="{{ route('projects.analysis-jobs.show', [$project, $analysisJob->recoveryAttempt]) }}">View Recovery Attempt</a>
+                                    <a href="{{ route('projects.analysis-jobs.show', [$project, $analysisJob->recoveryAttempt]) }}" class="btn-link">View Recovery Attempt</a>
                                 @elseif ($project->status === \App\Enums\ProjectStatus::Active)
                                     <form method="POST" action="{{ route('projects.analysis-jobs.recover', [$project, $analysisJob]) }}">
                                         @csrf
@@ -68,10 +66,8 @@
                     </tr>
                 @endforeach
             </tbody>
-        </table>
+        </table></div>
 
-        <div class="pagination">
-            {{ $analysisJobs->links() }}
-        </div>
+        {{ $analysisJobs->links('components.pagination') }}
     @endif
 @endsection

@@ -3,10 +3,11 @@
 @section('title', '列マッピングの確認')
 
 @section('actions')
-    <a href="{{ route('projects.analysis-jobs.show', [$project, $analysisJob]) }}" class="btn btn-secondary">戻る</a>
+    <a href="{{ route('projects.analysis-jobs.show', [$project, $analysisJob]) }}" class="btn-link">戻る</a>
 @endsection
 
 @section('content')
+    <x-breadcrumb :items="[['label' => 'Projects', 'href' => route('projects.index')], ['label' => $project->name, 'href' => route('projects.analysis-jobs.index', $project)], ['label' => $analysisJob->title, 'href' => route('projects.analysis-jobs.show', [$project, $analysisJob])], ['label' => 'Mapping']]" />
     <div class="card">
         <p><strong>テンプレート:</strong> {{ $template['name'] }}</p>
         <p><strong>Data File:</strong> {{ $analysisJob->dataFile->original_name }}</p>
@@ -16,15 +17,13 @@
         </p>
     </div>
 
-    @if ($errors->any())
-        <div class="errors"><ul>@foreach ($errors->all() as $error)<li>{{ $error }}</li>@endforeach</ul></div>
-    @endif
+    @include('components.errors')
 
     <form method="POST" action="{{ route('projects.analysis-jobs.mapping.update', [$project, $analysisJob]) }}">
         @csrf
         @method('PATCH')
 
-        <table>
+        <div class="table-scroll"><table>
             <thead>
                 <tr>
                     <th>項目</th>
@@ -59,14 +58,14 @@
                         <td>
                             {{ $definition['label'] }}
                             @if ($isRequired)
-                                <span title="必須">*</span>
+                                <span class="required-label">必須</span>
                             @elseif ($inRequiredGroup)
                                 <span class="hint" title="このグループのいずれか1つが必須">(グループ必須)</span>
                             @endif
                         </td>
                         <td>
                             @if ($ai && $ai['status'] === 'mapped')
-                                {{ $ai['column'] }}(<span title="AI confidence">{{ $ai['confidence'] }}</span>)
+                                {{ $ai['column'] }} <span class="hint">AI confidence: {{ $ai['confidence'] }}</span>
                             @else
                                 未設定
                             @endif
@@ -82,7 +81,7 @@
                     </tr>
                 @endforeach
             </tbody>
-        </table>
+        </table></div>
 
         <button type="submit" class="btn">このMappingで分析</button>
     </form>

@@ -7,6 +7,10 @@
 @endsection
 
 @section('content')
+    @if ($projects->isEmpty())
+        <x-empty-state message="No projects yet." action-label="Create Project" :action-href="route('projects.create')" />
+    @else
+    <div class="table-scroll">
     <table>
         <thead>
             <tr>
@@ -18,31 +22,27 @@
             </tr>
         </thead>
         <tbody>
-            @forelse ($projects as $project)
+            @foreach ($projects as $project)
                 <tr>
                     <td>{{ $project->name }}</td>
                     <td>{{ $project->description }}</td>
                     <td>
-                        <span class="badge {{ $project->status === \App\Enums\ProjectStatus::Active ? 'badge-active' : 'badge-archived' }}">
-                            {{ $project->status->value }}
-                        </span>
+                        <x-badge :variant="$project->status === \App\Enums\ProjectStatus::Active ? 'active' : 'archived'" :label="$project->status->value" />
                     </td>
                     <td>{{ $project->created_at?->format('Y-m-d H:i') }}</td>
                     <td>
-                        <a href="{{ route('projects.data-files.index', $project) }}">Data Files</a>
-                        <a href="{{ route('projects.analysis-jobs.index', $project) }}">Analysis History</a>
-                        <a href="{{ route('projects.edit', $project) }}">Edit</a>
+                        <a href="{{ route('projects.data-files.index', $project) }}" class="btn-link">Data Files</a>
+                        <a href="{{ route('projects.analysis-jobs.index', $project) }}" class="btn-link">Analysis History</a>
+                        <a href="{{ route('projects.edit', $project) }}" class="btn-link">Edit</a>
                     </td>
                 </tr>
-            @empty
-                <tr>
-                    <td colspan="5">No projects yet.</td>
-                </tr>
-            @endforelse
+            @endforeach
         </tbody>
     </table>
+    </div>
 
     <div class="pagination">
         {{ $projects->links() }}
     </div>
+    @endif
 @endsection

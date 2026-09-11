@@ -51,8 +51,42 @@ class HtmlReportControllerTest extends TestCase
 
         $response = $this->get(route('projects.reports.show', [$project, $report]))->assertOk();
         $this->assertStringContainsString($storedHtml, $response->getContent());
+        $this->assertSame(1, substr_count($response->getContent(), '<h1>'));
+        $this->assertMatchesRegularExpression('/@media print\s*\{.*\.app-nav, \.page-actions, \.breadcrumb/s', $response->getContent());
+        $this->assertDoesNotMatchRegularExpression('/@media print\s*\{[^}]*\.page-header[^}]*display:\s*none/s', $response->getContent());
+        $response->assertSee($report->generated_at->format('Y-m-d H:i:s'));
         $response->assertDontSee('Mutated summary')->assertDontSee('PDF')->assertDontSee('<form', false);
         $this->get(route('projects.reports.show', [Project::factory()->create(), $report]))->assertNotFound();
+    }
+
+    public function test_show_preserves_legacy_bare_table_report_and_scopes_minimum_width_to_new_table_wrappers(): void
+    {
+        [$project, $job] = $this->completedSource();
+        $legacyHtml = '<article class="html-report"><h1>Legacy report</h1><table><tr><td>Legacy cell</td></tr></table></article>';
+        $report = Report::factory()->for($job)->create([
+            'rendered_html' => $legacyHtml,
+            'content_hash' => hash('sha256', $legacyHtml),
+            'renderer_version' => 'report_renderer_v1.0',
+        ]);
+        $freshReport = $report->fresh();
+        $before = $freshReport->only(['rendered_html', 'content_hash', 'renderer_version']);
+        $updatedAt = $freshReport->updated_at->toISOString();
+
+        $content = $this->get(route('projects.reports.show', [$project, $report]))
+            ->assertOk()
+            ->assertSee($legacyHtml, false)
+            ->getContent();
+
+        $this->assertMatchesRegularExpression('/\.table-scroll\s+table\s*\{[^}]*min-width\s*:\s*640px/s', $content);
+        $this->assertDoesNotMatchRegularExpression('/(?:^|})\s*table\s*\{[^}]*min-width\s*:\s*640px/s', $content);
+        $this->assertStringContainsString('<div class="report-content">', $content);
+        $this->assertMatchesRegularExpression('/\.report-content\s*\{[^}]*max-width\s*:\s*100%[^}]*overflow-x\s*:\s*auto/s', $content);
+        $this->assertDoesNotMatchRegularExpression('/body\s*\{[^}]*overflow-x\s*:/s', $content);
+        $this->assertDoesNotMatchRegularExpression('/@media print\s*\{[^}]*\.(?:report-content|html-report)[^}]*display\s*:\s*none/s', $content);
+        $freshReport = $report->fresh();
+        $this->assertSame($before, $freshReport->only(['rendered_html', 'content_hash', 'renderer_version']));
+        $this->assertSame($updatedAt, $freshReport->updated_at->toISOString());
+        $this->assertDatabaseCount('reports', 1);
     }
 
     public function test_show_returns_404_for_soft_deleted_source_and_uses_same_report_after_restore(): void

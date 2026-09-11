@@ -8,7 +8,7 @@ use Illuminate\Contracts\View\Factory;
 
 class RenderHtmlReportAction
 {
-    public const string RENDERER_VERSION = 'report_renderer_v1.0';
+    public const string RENDERER_VERSION = 'report_renderer_v1.1';
 
     public function __construct(private readonly Factory $view) {}
 
