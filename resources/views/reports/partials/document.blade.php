@@ -1,12 +1,12 @@
 <article class="html-report">
     <header>
-        <h1>{{ $snapshot['source']['title'] }}</h1>
+        <h2>{{ $snapshot['source']['title'] }}</h2>
         <dl class="metadata">
             <dt>AnalysisJob</dt><dd>#{{ $snapshot['source']['analysis_job_id'] }}</dd>
             <dt>Mode</dt><dd>{{ $snapshot['source']['display_mode'] }}</dd>
             <dt>Data File</dt><dd>{{ $snapshot['source']['data_file_name'] }}</dd>
-            <dt>Completed At</dt><dd>{{ $snapshot['source']['completed_at'] ?? '-' }}</dd>
-            <dt>Generated At</dt><dd>{{ $snapshot['generated_at'] }}</dd>
+            <dt>Completed At</dt><dd>{{ $snapshot['source']['completed_at'] ? \Illuminate\Support\Carbon::parse($snapshot['source']['completed_at'])->format('Y-m-d H:i:s') : '-' }}</dd>
+            <dt>Generated At</dt><dd>{{ \Illuminate\Support\Carbon::parse($snapshot['generated_at'])->format('Y-m-d H:i:s') }}</dd>
             @if ($snapshot['source']['recovered_from_analysis_job_id'] !== null)
                 <dt>Recovered From</dt><dd>#{{ $snapshot['source']['recovered_from_analysis_job_id'] }}</dd>
             @endif
@@ -25,9 +25,9 @@
         <h2>Tables</h2>
         @forelse ($snapshot['analysis']['tables'] as $table)
             <h3>{{ $table['title'] }}</h3>
-            <table><thead><tr>@foreach ($table['columns'] as $column)<th>{{ $column }}</th>@endforeach</tr></thead>
+            <div class="table-scroll"><table><thead><tr>@foreach ($table['columns'] as $column)<th>{{ $column }}</th>@endforeach</tr></thead>
                 <tbody>@foreach ($table['rows'] as $row)<tr>@foreach ($row as $cell)<td>{{ $cell }}</td>@endforeach</tr>@endforeach</tbody>
-            </table>
+            </table></div>
         @empty<p>None</p>@endforelse
     </section>
     <section><h2>Insights</h2>@forelse ($snapshot['analysis']['insights'] as $insight)<h3>{{ $insight['title'] }}</h3><p>{{ $insight['description'] }}</p>@if ($insight['evidence'] !== null)<p>Evidence: {{ $insight['evidence'] }}</p>@endif @empty<p>None</p>@endforelse</section>
@@ -42,11 +42,11 @@
         @elseif ($snapshot['evaluation']['rows'] === [])
             <p>Evaluation data was not available for this report.</p>
         @else
-            <table><thead><tr><th>Entity</th><th>Metric</th><th>Value</th><th>Baseline</th><th>Difference</th><th>Direction</th><th>Evaluation</th></tr></thead><tbody>
+            <div class="table-scroll"><table><thead><tr><th>Entity</th><th>Metric</th><th>Value</th><th>Baseline</th><th>Difference</th><th>Direction</th><th>Evaluation</th></tr></thead><tbody>
                 @foreach ($snapshot['evaluation']['rows'] as $row)
                     <tr><td>{{ $row['entity_key'] }}</td><td>{{ $row['metric_label'] }}</td><td>{{ $row['metric_value'] !== null ? number_format($row['metric_value'] * 100, 2).'%' : '-' }}</td><td>{{ $row['display_baseline_value'] !== null ? number_format($row['display_baseline_value'] * 100, 2).'%' : '-' }}</td><td>{{ $row['delta_absolute'] !== null ? ($row['delta_absolute'] >= 0 ? '+' : '').number_format($row['delta_absolute'] * 100, 2).'pp' : '-' }}</td><td>{{ $row['direction'] ?? '-' }}</td><td>{{ $row['evaluation_level'] }}</td></tr>
                 @endforeach
-            </tbody></table>
+            </tbody></table></div>
         @endif
     </section>
 
@@ -57,7 +57,7 @@
     <section>
         <h2>Controlled Actions</h2>
         @forelse ($snapshot['controlled_actions']['proposals'] as $proposal)
-            <article><h3>{{ $proposal['title'] }}</h3><p>{{ $proposal['advisory_label'] }}</p><p>Catalog: {{ $proposal['catalog_label'] }}</p><p>Target: {{ $proposal['entity_key'] }} / {{ $proposal['metric_label'] }}</p><p>確認優先度: {{ ucfirst($proposal['priority_band']) }}</p><p>{{ $proposal['rationale'] }}</p><p>Evidence: {{ implode(' / ', $proposal['evidence_refs']) }}</p>@if ($proposal['selected_checks'] !== [])<p>Checks: {{ implode(' / ', $proposal['selected_checks']) }}</p>@endif @if ($proposal['missing_evidence'] !== [])<p>Missing evidence: {{ implode(' / ', $proposal['missing_evidence']) }}</p>@endif</article>
+            <article><h3>{{ $proposal['title'] }}</h3><p><span class="badge badge-advisory">{{ $proposal['advisory_label'] }}</span></p><p>Catalog: {{ $proposal['catalog_label'] }}</p><p>Target: {{ $proposal['entity_key'] }} / {{ $proposal['metric_label'] }}</p><p>確認優先度: {{ ucfirst($proposal['priority_band']) }}</p><p>{{ $proposal['rationale'] }}</p><p>Evidence: {{ implode(' / ', $proposal['evidence_refs']) }}</p>@if ($proposal['selected_checks'] !== [])<p>Checks: {{ implode(' / ', $proposal['selected_checks']) }}</p>@endif @if ($proposal['missing_evidence'] !== [])<p>Missing evidence: {{ implode(' / ', $proposal['missing_evidence']) }}</p>@endif</article>
         @empty
             <p>No controlled action proposal was generated.</p>
             @if (! $snapshot['controlled_actions']['applicable'])<p>Controlled Actions are not applicable to this analysis.</p>@elseif ($snapshot['controlled_actions']['eligible_count'] === 0)<p>No evidence currently meets the controlled eligibility contract.</p>@else<p>Eligible evidence existed, but proposals are best-effort output and may be unavailable.</p>@endif

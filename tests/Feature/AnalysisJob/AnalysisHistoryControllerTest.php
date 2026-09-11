@@ -140,15 +140,45 @@ class AnalysisHistoryControllerTest extends TestCase
             ->assertDontSee(route('projects.analysis-jobs.mapping.edit', [$project, $failed]), false);
     }
 
-    public function test_history_renders_pagination_links_for_more_than_twenty_jobs(): void
+    public function test_history_renders_accessible_custom_pagination_for_twenty_five_jobs(): void
     {
         $project = Project::factory()->create();
         $dataFile = DataFile::factory()->for($project)->create();
-        AnalysisJob::factory()->count(21)->for($dataFile)->create();
+        AnalysisJob::factory()->count(25)->for($dataFile)->create();
+
+        $firstPage = $this->get(route('projects.analysis-jobs.index', $project));
+        $secondPage = $this->get(route('projects.analysis-jobs.index', $project).'?page=2');
+        $firstPagination = $this->paginationNavigation($firstPage->getContent());
+        $secondPagination = $this->paginationNavigation($secondPage->getContent());
+
+        $firstPage->assertOk()
+            ->assertSee('aria-label="Analysis History pagination"', false)
+            ->assertSee('Previous')
+            ->assertSee('Next')
+            ->assertSee('?page=2', false)
+            ->assertDontSee('<svg', false);
+        $secondPage->assertOk()
+            ->assertSee('?page=1', false)
+            ->assertSee('Previous')
+            ->assertSee('Next')
+            ->assertDontSee('<svg', false);
+        $this->assertSame(1, substr_count($firstPagination, 'aria-current="page"'));
+        $this->assertSame(1, substr_count($secondPagination, 'aria-current="page"'));
+        $this->assertMatchesRegularExpression('/aria-current="page">1<\/span>/', $firstPagination);
+        $this->assertMatchesRegularExpression('/aria-current="page">2<\/span>/', $secondPagination);
+        $this->assertMatchesRegularExpression('/aria-disabled="true">Previous<\/span>/', $firstPagination);
+        $this->assertMatchesRegularExpression('/aria-disabled="true">Next<\/span>/', $secondPagination);
+    }
+
+    public function test_history_omits_pagination_navigation_for_twenty_or_fewer_jobs(): void
+    {
+        $project = Project::factory()->create();
+        $dataFile = DataFile::factory()->for($project)->create();
+        AnalysisJob::factory()->count(20)->for($dataFile)->create();
 
         $this->get(route('projects.analysis-jobs.index', $project))
             ->assertOk()
-            ->assertSee('?page=2', false);
+            ->assertDontSee('aria-label="Analysis History pagination"', false);
     }
 
     public function test_archived_project_history_remains_readable(): void
@@ -209,6 +239,19 @@ class AnalysisHistoryControllerTest extends TestCase
         );
 
         $this->assertSame(1, $matched, "Could not find the table row for AnalysisJob [{$title}].");
+
+        return $matches[0];
+    }
+
+    private function paginationNavigation(string $html): string
+    {
+        $matched = preg_match(
+            '/<nav class="pagination"[^>]*aria-label="Analysis History pagination".*?<\/nav>/s',
+            $html,
+            $matches,
+        );
+
+        $this->assertSame(1, $matched, 'Could not find the Analysis History pagination navigation.');
 
         return $matches[0];
     }

@@ -7,7 +7,7 @@ use App\Http\Controllers\ReportController;
 use Illuminate\Support\Facades\Route;
 
 Route::get('/', function () {
-    return view('welcome');
+    return redirect()->route('projects.index');
 });
 
 Route::get('/projects', [ProjectController::class, 'index'])->name('projects.index');

@@ -24,6 +24,13 @@ class RenderHtmlReportActionTest extends TestCase
         $this->assertStringContainsString('原因の仮説', $first);
         $this->assertStringContainsString('確認優先度', $first);
         $this->assertStringContainsString('Controlled Actions', $first);
+        $this->assertStringContainsString('2026-09-08 00:00:00', $first);
+        $this->assertStringNotContainsString('2026-09-08T00:00:00+00:00', $first);
+        $this->assertStringNotContainsString('<h1', $first);
+        $this->assertStringContainsString('badge-advisory', $first);
+        $this->assertStringContainsString('>Advisory only — not executed</span>', $first);
+        $this->assertStringNotContainsString('ⓘ', $first);
+        $this->assertSame('report_renderer_v1.1', RenderHtmlReportAction::RENDERER_VERSION);
         $this->assertSame(hash('sha256', $first), hash('sha256', $second));
     }
 

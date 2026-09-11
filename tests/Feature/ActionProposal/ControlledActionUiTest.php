@@ -42,6 +42,9 @@ class ControlledActionUiTest extends TestCase
 
         $response->assertOk();
         $this->assertStringContainsString('Advisory only — not executed', $section);
+        $this->assertStringNotContainsString('ⓘ', $section);
+        $this->assertStringContainsString('badge-advisory', $section);
+        $this->assertStringContainsString('badge-'.$priority->priority_band, $section);
         $this->assertStringContainsString('Collect explanatory evidence', $section);
         $this->assertStringContainsString('確認優先度', $section);
         $this->assertStringNotContainsString('0.173829', $section);

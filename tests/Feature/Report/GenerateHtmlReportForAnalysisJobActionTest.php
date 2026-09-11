@@ -48,6 +48,7 @@ class GenerateHtmlReportForAnalysisJobActionTest extends TestCase
         $this->assertMatchesRegularExpression('/\A[0-9a-f]{64}\z/', $freshReport->content_hash);
         $this->assertSame('report_schema_v1.0', $freshReport->schema_version);
         $this->assertSame('report_schema_v1.0', $freshReport->snapshot_json['schema_version']);
+        $this->assertSame('report_renderer_v1.1', $freshReport->renderer_version);
         $this->assertArrayHasKey('source', $freshReport->snapshot_json);
         $this->assertArrayHasKey('analysis', $freshReport->snapshot_json);
         $this->assertArrayHasKey('controlled_actions', $freshReport->snapshot_json);
